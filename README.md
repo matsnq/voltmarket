@@ -193,11 +193,22 @@ cd backend && npm install && npm test # 76 tests: unit, API integration, securit
 ## Repository layout
 
 ```
-backend/    Express API — src/modules/{auth,catalog,...}, migrations/, seeds/, tests/
-frontend/   React SPA (Vite + Tailwind)
-nginx/      TLS termination + static serving + API proxy (self-signed cert)
-docs/       ERD, (later: performance report, API docs)
+backend/     Express API — src/modules/{auth,catalog,...}, migrations/, seeds/, tests/
+frontend/    React SPA (Vite + Tailwind)
+nginx/       TLS termination + static serving + API proxy (self-signed cert)
+docs/        ERD, (later: performance report, API docs)
+ANSWERS.md   every assessment criterion answered, with commands that prove it
+CHECKLIST.md progress tracker across all three projects
 ```
+
+## Documentation
+
+| Document | Contents |
+|---|---|
+| `README.md` | overview, setup, usage, testing (this file) |
+| `docs/erd.md` | full entity relationship diagram with design notes |
+| `ANSWERS.md` | each review criterion answered, with verification commands |
+| `CHECKLIST.md` | what is done and what is still planned, per project |
 
 ## Bonus functionality beyond the minimum
 
