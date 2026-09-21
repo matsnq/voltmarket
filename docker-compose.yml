@@ -1,0 +1,108 @@
+name: i-love-shopping
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-shop}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shop_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-shop}
+    ports:
+      - "5433:5432" # 5433 on the host to avoid clashing with a local Postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-shop} -d ${POSTGRES_DB:-shop}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672" # management UI (guest/guest)
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  mailpit:
+    image: axllent/mailpit
+    ports:
+      - "8025:8025" # web UI to read sent emails
+      - "1025:1025" # SMTP
+
+  api:
+    build: ./backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    environment: &api_env
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://${POSTGRES_USER:-shop}:${POSTGRES_PASSWORD:-shop_secret}@postgres:5432/${POSTGRES_DB:-shop}
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      MAIL_FROM: "Voltmarket <no-reply@voltmarket.local>"
+      APP_URL: https://localhost
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev_access_secret_change_me}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev_refresh_secret_change_me}
+      ACCESS_TOKEN_TTL_MIN: ${ACCESS_TOKEN_TTL_MIN:-15}
+      REFRESH_TOKEN_TTL_DAYS: ${REFRESH_TOKEN_TTL_DAYS:-7}
+      FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY:-6f1d9c1e6a1b4f8e9d2c3b4a5f6e7d8c9b0a1f2e3d4c5b6a7f8e9d0c1b2a3f4e}
+      RECAPTCHA_SECRET: ${RECAPTCHA_SECRET:-6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe}
+      RECAPTCHA_SITE_KEY: ${RECAPTCHA_SITE_KEY:-6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_PUBLIC_KEY: ${STRIPE_PUBLIC_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+    ports:
+      - "3000:3000" # exposed so the Stripe CLI can forward webhooks
+    volumes:
+      - uploads:/app/uploads
+    command: sh -c "npm run migrate && npm run seed && node src/server.js"
+
+  worker:
+    build: ./backend
+    depends_on:
+      api:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+    environment: *api_env
+    command: node src/worker.js
+
+  web:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+
+volumes:
+  pgdata:
+  uploads:
