@@ -67,9 +67,10 @@ erDiagram
 
 ## Setup & installation
 
-**Prerequisite: Docker** (Docker Desktop or engine + compose v2). For payment
-testing in Project 2 you will additionally need the
-[Stripe CLI](https://docs.stripe.com/stripe-cli).
+**Docker is the only prerequisite** (Docker Desktop, or engine + compose v2).
+No Node, Postgres, Redis or OpenSSL on the host — not even to run the tests.
+Project 2 additionally needs the [Stripe CLI](https://docs.stripe.com/stripe-cli)
+for payment webhooks.
 
 ```bash
 docker compose up --build
@@ -77,18 +78,94 @@ docker compose up --build
 
 That single command builds and starts everything: Postgres, Redis, RabbitMQ,
 Mailpit, the API, the queue worker, and nginx serving the frontend over TLS.
+The API runs its migrations and seeds itself on boot, so a fresh clone
+provisions with no extra steps. **The first build takes a few minutes** (it
+compiles the SPA and generates a TLS certificate); later starts take seconds.
 
 | URL                             | What                                                       |
 | ------------------------------- | ---------------------------------------------------------- |
-| https://localhost               | Storefront (self-signed cert — accept the browser warning) |
+| https://localhost               | Storefront (self-signed cert — see the warning note below) |
 | https://localhost/api/v1/health | API health check                                           |
 | http://localhost:8025           | Mailpit — read every email the shop sends                  |
 | http://localhost:15672          | RabbitMQ management (guest / guest)                        |
 
-Optional configuration: copy `.env.example` to `.env` to set real reCAPTCHA
-keys, Google OAuth credentials, or Stripe test keys. Every variable has a
-working dev default (the bundled reCAPTCHA keys are Google's official public
-_test_ keys, which always pass).
+### The certificate warning is expected
+
+The TLS certificate is **self-signed**, generated during the image build, so
+no certificate authority vouches for it. Browsers therefore show
+`NET::ERR_CERT_AUTHORITY_INVALID` on the first visit. The connection is still
+fully encrypted — only the *identity* is unverified, which is inherent to a
+self-signed certificate and exactly what the brief asked for.
+
+To continue in Chrome: **Advanced → Proceed to localhost (unsafe)**. If that
+link is missing, click the page once and type `thisisunsafe`. Accept it once
+before testing Google sign-in, otherwise the OAuth redirect back to
+`https://localhost/...` lands on the warning page instead of completing.
+
+### Ports this project uses
+
+Everything is published on the host, so a service already running on one of
+these will make `docker compose up` fail with "port is already allocated":
+
+| Port | Service | Port | Service |
+| ---- | ------------------------- | ----- | ---------------- |
+| 80   | nginx (redirects to HTTPS)| 5672  | RabbitMQ         |
+| 443  | nginx (storefront + API)  | 15672 | RabbitMQ web UI  |
+| 3000 | API direct (Stripe CLI)   | 8025  | Mailpit web UI   |
+| 5433 | PostgreSQL                | 1025  | Mailpit SMTP     |
+| 6379 | Redis                     |       |                  |
+
+**3000** and **6379** are the usual culprits on a developer machine. Find the
+offender with `lsof -i :3000` (macOS/Linux) and stop it, or change the
+left-hand number of that mapping in `docker-compose.yml`. PostgreSQL is already
+mapped to **5433** rather than 5432 so it cannot clash with a local install.
+
+### Stopping and resetting
+
+```bash
+docker compose down      # stop, keep the database and uploaded images
+docker compose down -v   # stop and wipe all data — next start reseeds from scratch
+```
+
+### Optional configuration
+
+Everything runs with no `.env` at all; every variable has a working default in
+`docker-compose.yml`. Copy `.env.example` to `.env` only to supply real keys:
+
+- **reCAPTCHA** — the defaults are Google's published *test* keys, which always
+  pass and display a red "for testing purposes only" notice on the widget.
+  Real keys from [reCAPTCHA admin](https://www.google.com/recaptcha/admin/create)
+  (v2 checkbox, domain `localhost`) go in `RECAPTCHA_SITE_KEY` / `RECAPTCHA_SECRET`.
+- **Google OAuth** — see below; it is **off** until you supply credentials.
+- **Stripe** — Project 2 only.
+
+After editing `.env`, apply it with `docker compose up -d api` (no rebuild
+needed — the SPA reads this configuration at runtime from `/api/v1/auth/config`).
+
+### Enabling Google sign-in (reviewers: read this)
+
+`.env` is gitignored, so a fresh clone has **no OAuth credentials** and the
+*Continue with Google* button is hidden — `/api/v1/auth/config` reports
+`googleEnabled: false`. The authorization-code flow is fully implemented in
+`backend/src/modules/auth/auth.service.js`; it simply needs credentials, which
+cannot be committed to a public repository.
+
+To see it working, create your own in about five minutes:
+
+1. [Google Cloud Console](https://console.cloud.google.com/) → **APIs & Services**
+2. **OAuth consent screen**: External, any app name, your email as support and
+   developer contact. Add your own Google address under **Audience → Test users**
+   (the app stays in Testing mode, where only listed accounts may sign in).
+3. **Credentials → Create credentials → OAuth client ID → Web application**.
+   Authorised redirect URI, exactly:
+   ```
+   https://localhost/api/v1/auth/google/callback
+   ```
+4. Put the client ID and secret in `.env` as `GOOGLE_CLIENT_ID` and
+   `GOOGLE_CLIENT_SECRET`, then `docker compose up -d api`.
+
+`curl -k https://localhost/api/v1/auth/config` should then report
+`googleEnabled: true` and the button appears on `/login`.
 
 ### Demo accounts
 
@@ -157,9 +234,25 @@ curl -k -b jar.txt -c jar.txt -X POST https://localhost/api/v1/auth/refresh
 
 ## Testing
 
+76 tests: unit, API integration and security. With the stack already running
+(`docker compose up -d`), run them **without installing Node**:
+
 ```bash
-docker compose up -d postgres redis   # test infra
-cd backend && npm install && npm test # 76 tests: unit, API integration, security
+docker run --rm -v "$PWD/backend":/app -w /app \
+  --network i-love-shopping_default \
+  -e NODE_ENV=test \
+  -e ADMIN_DATABASE_URL=postgres://shop:shop_secret@postgres:5432/shop \
+  -e TEST_DATABASE_URL=postgres://shop:shop_secret@postgres:5432/shop_test \
+  -e REDIS_URL=redis://redis:6379 \
+  node:24-alpine sh -c "npm ci && npx jest --runInBand"
+```
+
+The suite creates and migrates its own `shop_test` database, so it never
+touches development data. If you do have Node 20+ locally, the shorter form
+works too:
+
+```bash
+cd backend && npm install && npm test
 ```
 
 - **Unit**: JWT generation/validation/expiry/tampering, input validation
