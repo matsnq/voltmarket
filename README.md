@@ -6,18 +6,18 @@ Business-to-Consumer web shop selling **electric cars and EV accessories**
 
 ## Project overview
 
-| Layer | Technology | Why |
-|---|---|---|
-| API | Node.js 24 + Express 4 (modular monolith, `/api/v1`) | Stateless, horizontally scalable, one language across the stack |
-| Database | PostgreSQL 16 | ACID transactions, generated columns, built-in full-text search |
-| Cache / rate limiting | Redis 7 | Hot catalog caching, token-bucket rate limiter, JWT revocation denylist |
-| Message queue | RabbitMQ 3.13 (+ dead-letter queue) | Async order/payment processing (Project 2) |
-| Frontend | React 18 + Vite + Tailwind CSS | SPA storefront, access tokens held in memory only |
-| Edge | nginx + self-signed TLS | HTTPS termination, static serving, API proxy |
-| Email | Mailpit (dev SMTP + web UI) | Password reset & order emails, viewable at `:8025` |
-| Payments | Stripe (test mode) + Stripe CLI | PCI-friendly: card data never touches this server |
+| Layer                 | Technology                                           | Why                                                                     |
+| --------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------- |
+| API                   | Node.js 24 + Express 4 (modular monolith, `/api/v1`) | Stateless, horizontally scalable, one language across the stack         |
+| Database              | PostgreSQL 16                                        | ACID transactions, generated columns, built-in full-text search         |
+| Cache / rate limiting | Redis 7                                              | Hot catalog caching, token-bucket rate limiter, JWT revocation denylist |
+| Message queue         | RabbitMQ 3.13 (+ dead-letter queue)                  | Async order/payment processing (Project 2)                              |
+| Frontend              | React 18 + Vite + Tailwind CSS                       | SPA storefront, access tokens held in memory only                       |
+| Edge                  | nginx + self-signed TLS                              | HTTPS termination, static serving, API proxy                            |
+| Email                 | Mailpit (dev SMTP + web UI)                          | Password reset & order emails, viewable at `:8025`                      |
+| Payments              | Stripe (test mode) + Stripe CLI                      | PCI-friendly: card data never touches this server                       |
 
-**Architecture:** a *modular monolith* — one Express app with isolated modules
+**Architecture:** a _modular monolith_ — one Express app with isolated modules
 (`auth`, `catalog`, `cart`, `orders`, `payments`, `reviews`, `admin`), each with
 its own routes/controller/service/validation. The API is stateless (JWTs +
 Redis/Postgres for shared state), so it scales horizontally behind a load
@@ -78,24 +78,24 @@ docker compose up --build
 That single command builds and starts everything: Postgres, Redis, RabbitMQ,
 Mailpit, the API, the queue worker, and nginx serving the frontend over TLS.
 
-| URL | What |
-|---|---|
-| https://localhost | Storefront (self-signed cert — accept the browser warning) |
-| https://localhost/api/v1/health | API health check |
-| http://localhost:8025 | Mailpit — read every email the shop sends |
-| http://localhost:15672 | RabbitMQ management (guest / guest) |
+| URL                             | What                                                       |
+| ------------------------------- | ---------------------------------------------------------- |
+| https://localhost               | Storefront (self-signed cert — accept the browser warning) |
+| https://localhost/api/v1/health | API health check                                           |
+| http://localhost:8025           | Mailpit — read every email the shop sends                  |
+| http://localhost:15672          | RabbitMQ management (guest / guest)                        |
 
 Optional configuration: copy `.env.example` to `.env` to set real reCAPTCHA
 keys, Google OAuth credentials, or Stripe test keys. Every variable has a
 working dev default (the bundled reCAPTCHA keys are Google's official public
-*test* keys, which always pass).
+_test_ keys, which always pass).
 
 ### Demo accounts
 
-| Email | Password | Role |
-|---|---|---|
-| `admin@voltmarket.local` | `Admin123!` | admin (forced to enroll 2FA on first login) |
-| `demo@voltmarket.local` | `Demo123!` | customer (2FA off, so you can enroll it yourself) |
+| Email                    | Password    | Role                                              |
+| ------------------------ | ----------- | ------------------------------------------------- |
+| `admin@voltmarket.local` | `Admin123!` | admin (forced to enroll 2FA on first login)       |
+| `demo@voltmarket.local`  | `Demo123!`  | customer (2FA off, so you can enroll it yourself) |
 
 ## Try it in the browser
 
@@ -109,7 +109,7 @@ Open https://localhost and accept the self-signed certificate warning.
    `document.cookie` shows nothing (the refresh cookie is `httpOnly`). Press
    F5: you stay logged in, because the SPA silently exchanges that cookie for a
    new access token on load.
-3. **Enroll 2FA** — `/account` → *Set up 2FA*. Scan the QR with Google
+3. **Enroll 2FA** — `/account` → _Set up 2FA_. Scan the QR with Google
    Authenticator or Authy, enter the 6-digit code, and save the 8 recovery
    codes (shown once). Log out and back in: the login form grows a second step.
    A recovery code works in place of the app code, exactly once.
@@ -175,7 +175,7 @@ cd backend && npm install && npm test # 76 tests: unit, API integration, securit
    client-side), then tick it and register. With real keys, also let the widget
    expire to confirm the token is refused server-side.
 2. **Google OAuth** — set `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`, then use
-   *Continue with Google* on `/login`: full round trip, account linking to an
+   _Continue with Google_ on `/login`: full round trip, account linking to an
    existing email, and cancelling mid-flow.
 3. **2FA** — enroll via QR on `/account` in Google Authenticator or Authy, log
    in with a code, spend a recovery code (works exactly once), and confirm an
@@ -203,12 +203,12 @@ CHECKLIST.md progress tracker across all three projects
 
 ## Documentation
 
-| Document | Contents |
-|---|---|
-| `README.md` | overview, setup, usage, testing (this file) |
-| `docs/erd.md` | full entity relationship diagram with design notes |
-| `ANSWERS.md` | each review criterion answered, with verification commands |
-| `CHECKLIST.md` | what is done and what is still planned, per project |
+| Document       | Contents                                                   |
+| -------------- | ---------------------------------------------------------- |
+| `README.md`    | overview, setup, usage, testing (this file)                |
+| `docs/erd.md`  | full entity relationship diagram with design notes         |
+| `ANSWERS.md`   | each review criterion answered, with verification commands |
+| `CHECKLIST.md` | what is done and what is still planned, per project        |
 
 ## Bonus functionality beyond the minimum
 

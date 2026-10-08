@@ -7,7 +7,7 @@ Living self-review against the course's mandatory items. ✅ done · 🔜 planne
 - ✅ README: overview, ERD, setup instructions, usage guide
 - ✅ B2C e-commerce model (Voltmarket sells EVs/accessories to consumers)
 - ✅ Email-password authentication
-- ✅ OAuth authentication (Google; needs `GOOGLE_CLIENT_ID/SECRET` in `.env`)
+- ✅ OAuth authentication (Google OAuth 2.0 authorization-code flow, configured and live; credentials in gitignored `.env`)
 - ✅ CAPTCHA in registration (server-side verify; Google test keys by default)
 - ✅ Can explain JWT header/payload/signature (see README "Token model")
 - ✅ Access tokens stored in memory (SPA context; never local/session storage)
