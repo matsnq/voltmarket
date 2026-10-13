@@ -8,6 +8,9 @@ const { rateLimit } = require('./middleware/rateLimit');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 const authRoutes = require('./modules/auth/auth.routes');
 const catalogRoutes = require('./modules/catalog/catalog.routes');
+const cartRoutes = require('./modules/cart/cart.routes');
+const orderRoutes = require('./modules/orders/orders.routes');
+const paymentRoutes = require('./modules/payments/payments.routes');
 
 function createApp() {
   const app = express();
@@ -34,6 +37,9 @@ function createApp() {
   app.use('/api/v1', rateLimit({ name: 'global', capacity: 120, refillPerSec: 2 }));
   app.use('/api/v1/auth', authRoutes);
   app.use('/api/v1', catalogRoutes);
+  app.use('/api/v1/cart', cartRoutes);
+  app.use('/api/v1', orderRoutes);
+  app.use('/api/v1/payments', paymentRoutes);
 
   app.use(notFound);
   app.use(errorHandler);

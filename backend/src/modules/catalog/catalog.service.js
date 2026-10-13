@@ -1,10 +1,7 @@
 const db = require('../../lib/db');
 const { cached } = require('../../lib/cache');
+const { formatPrice } = require('../../lib/money');
 const { HttpError } = require('../../middleware/errorHandler');
-
-function formatPrice(cents, currency = 'EUR') {
-  return new Intl.NumberFormat('en-IE', { style: 'currency', currency }).format(cents / 100);
-}
 
 function serializeProduct(row, images = []) {
   return {

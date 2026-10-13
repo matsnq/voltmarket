@@ -31,19 +31,27 @@ Living self-review against the course's mandatory items. ✅ done · 🔜 planne
 - ✅ Architecture explanation (modular monolith, stateless API → horizontal scale)
 - ✅ Dockerized; Docker is the only host prerequisite
 
-## Project 2 — Commerce (🔜)
+## Project 2 — Commerce
 
-- 🔜 Cart: item info, add/remove/update, real-time totals
-- 🔜 Guest cart + persistent logged-in cart (+ merge)
-- 🔜 Related/recommended products in cart
-- 🔜 Single-page checkout with prefill, shipping options, address validation
-- 🔜 Order confirmation page + email
-- 🔜 Stripe sandbox payments; no card data on our server; front-end card validation
-- 🔜 Payment statuses Pending/Success/Failure → message queue → order service consumes
-- 🔜 Order filtering (date, status), detail view, tracking
-- 🔜 Cancellations before processing + refund workflow
-- 🔜 RabbitMQ with dead-letter queue; inventory oversell protection
-- 🔜 Tests: cart unit, order summary unit, registration + checkout flows
+- ✅ Cart: name, price, thumbnail per item; add/remove/update; real-time totals
+- ✅ Guest cart (httpOnly cookie token, DB-backed) + persistent cart for users
+- ✅ Guest cart merges into the account cart on login (quantities summed, capped at stock)
+- ✅ Related/recommended products based on what is in the cart
+- ✅ Checkout API: email, address, shipping method; prefill data available via `/auth/me`
+- ✅ Shipping options (4 tiers) with server-side address validation (syntactic + country whitelist)
+- ✅ Order confirmation email via Mailpit, with full summary
+- ✅ Payment statuses Pending/Success/Failure linked to order state
+- ✅ Status published to RabbitMQ; worker consumes and updates the order
+- ✅ RabbitMQ dead-letter queue + bounded retries + idempotent consumers
+- ✅ Inventory: stock reserved at placement under `SELECT … FOR UPDATE`, released on
+  failure/cancellation — concurrent oversell proven impossible by test
+- ✅ Order filtering by date and status; detail view with status timeline
+- ✅ Cancellation before processing, with stock release
+- ✅ Stripe PaymentIntents — card data never touches the server (needs keys to demo)
+- ✅ Refund workflow (full and partial) — needs Stripe keys to exercise
+- ✅ Tests: cart unit, order summary unit, guest + logged-in checkout flows (113 total)
+- 🔜 Single-page checkout UI and order confirmation page (Project 3)
+- 🔜 Front-end card validation via Stripe Elements (Project 3)
 - 🔜 Manual: encryption in transit & at rest
 
 ## Project 3 — Experience (🔜)
