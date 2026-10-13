@@ -1,4 +1,5 @@
 const db = require('../../lib/db');
+const { decryptField } = require('../../lib/crypto');
 const config = require('../../config');
 const queue = require('../../lib/queue');
 const { HttpError } = require('../../middleware/errorHandler');
@@ -50,7 +51,7 @@ async function createPaymentIntent(orderId) {
     currency: order.currency.toLowerCase(),
     automatic_payment_methods: { enabled: true },
     metadata: { order_id: order.id, order_reference: order.reference },
-    receipt_email: order.email,
+    receipt_email: order.email_enc ? decryptField(order.email_enc) : undefined,
   });
 
   await db('payments').insert({

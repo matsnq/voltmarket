@@ -32,8 +32,20 @@ function sha256(value) {
   return crypto.createHash('sha256').update(String(value)).digest('hex');
 }
 
+// Blind index for encrypted columns that still need equality lookups.
+// AES-GCM is randomised, so ciphertext cannot be compared; this keyed hash is
+// deterministic for the same input. It is HMAC rather than a bare hash so an
+// attacker holding the database cannot brute-force common values (such as
+// email addresses) without also holding the key.
+function blindIndex(value) {
+  return crypto
+    .createHmac('sha256', KEY)
+    .update(String(value).trim().toLowerCase())
+    .digest('hex');
+}
+
 function randomToken(bytes = 48) {
   return crypto.randomBytes(bytes).toString('hex');
 }
 
-module.exports = { encryptField, decryptField, sha256, randomToken };
+module.exports = { encryptField, decryptField, sha256, blindIndex, randomToken };

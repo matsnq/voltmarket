@@ -98,3 +98,74 @@ describe('token-bucket rate limiting', () => {
     }
   });
 });
+
+describe('encryption at rest', () => {
+  test('user PII is ciphertext in the database, never plaintext', async () => {
+    const email = `enc-${Date.now()}@itest.local`;
+    const reg = await request(app)
+      .post('/api/v1/auth/register')
+      .send({ email, password: 'Passw0rd1', name: 'Encryption Tester', captchaToken: 'ok' });
+
+    await request(app)
+      .patch('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${reg.body.accessToken}`)
+      .send({ phone: '+372 5555 1234' });
+
+    const row = await db('users').where({ email }).first();
+    // Phone and TOTP secrets are AES-256-GCM: iv.tag.ciphertext, base64 parts.
+    expect(row.phone_enc).not.toContain('5555');
+    expect(row.phone_enc).toMatch(/^[A-Za-z0-9+/=]+\.[A-Za-z0-9+/=]+\./);
+    // Passwords are bcrypt-hashed, never encrypted (they need no reading back).
+    expect(row.password_hash).toMatch(/^\$2[aby]\$/);
+    expect(row.password_hash).not.toContain('Passw0rd1');
+  });
+
+  test('order PII is encrypted, with a blind index for lookups', async () => {
+    const product = await db('products')
+      .where('is_active', true)
+      .where('stock_quantity', '>=', 1)
+      .first();
+    const added = await request(app)
+      .post('/api/v1/cart/items')
+      .send({ productId: product.id, quantity: 1 });
+    const cookies = (added.headers['set-cookie'] || [])
+      .map((c) => c.split(';')[0])
+      .join('; ');
+
+    const email = `order-enc-${Date.now()}@itest.local`;
+    const placed = await request(app)
+      .post('/api/v1/checkout')
+      .set('Cookie', cookies)
+      .send({
+        email,
+        shippingMethodId: 1,
+        shippingAddress: {
+          recipient: 'Secret Buyer',
+          street: 'Hidden Street 9',
+          city: 'Tallinn',
+          postalCode: '10115',
+          country: 'EE',
+        },
+      });
+    expect(placed.status).toBe(201);
+
+    const row = await db('orders').where({ reference: placed.body.order.reference }).first();
+    const dump = JSON.stringify(row);
+    // Neither the buyer's email nor their address appears in the stored row.
+    expect(dump).not.toContain(email);
+    expect(dump).not.toContain('Hidden Street 9');
+    expect(dump).not.toContain('Secret Buyer');
+    // But a deterministic blind index allows the guest to look the order up.
+    expect(row.email_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(row).not.toHaveProperty('email'); // the plaintext column is gone
+
+    // Payment records deliberately hold no cardholder data at all — only the
+    // provider's reference — so there is nothing sensitive left to encrypt.
+    const paymentColumns = Object.keys(
+      (await db('payments').columnInfo())
+    );
+    for (const forbidden of ['card_number', 'cvv', 'card_last4', 'pan', 'expiry']) {
+      expect(paymentColumns).not.toContain(forbidden);
+    }
+  });
+});

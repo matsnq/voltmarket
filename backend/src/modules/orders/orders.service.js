@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const db = require('../../lib/db');
 const { money } = require('../../lib/money');
-const { encryptField, decryptField } = require('../../lib/crypto');
+const { encryptField, decryptField, blindIndex } = require('../../lib/crypto');
 const { HttpError } = require('../../middleware/errorHandler');
 const cartService = require('../cart/cart.service');
 
@@ -89,7 +89,8 @@ async function createOrder(req, res, payload) {
       .insert({
         reference: generateReference(),
         user_id: userId,
-        email: payload.email,
+        email_enc: encryptField(payload.email),
+        email_hash: blindIndex(payload.email),
         status: 'pending_payment',
         subtotal_cents: subtotalCents,
         shipping_cents: shippingCents,
@@ -225,7 +226,7 @@ function serializeOrder(order, items = [], events = [], shippingMethod = null) {
     id: order.id,
     reference: order.reference,
     status: order.status,
-    email: order.email,
+    email: order.email_enc ? decryptField(order.email_enc) : null,
     placedAt: order.created_at,
     paidAt: order.paid_at,
     shippedAt: order.shipped_at,
@@ -284,7 +285,9 @@ async function getOrderForViewer(identifier, { userId, email }) {
 
   if (order.user_id) {
     if (order.user_id !== userId) throw new HttpError(403, 'This is not your order');
-  } else if (!email || email.toLowerCase() !== order.email.toLowerCase()) {
+  } else if (!email || blindIndex(email) !== order.email_hash) {
+    // Compared via the blind index: the plaintext address is never read back
+    // just to authorise a lookup.
     throw new HttpError(403, 'Provide the email address used for this order');
   }
   return getOrderById(order.id);
