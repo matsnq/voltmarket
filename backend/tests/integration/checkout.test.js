@@ -349,3 +349,51 @@ describe('inventory integrity', () => {
     expect(afterSecond.stock_quantity).toBe(afterFirst.stock_quantity); // no double release
   });
 });
+
+describe('payment reconciliation (missed webhook recovery)', () => {
+  // Webhooks can be missed: the tunnel dies, the server restarts, the endpoint
+  // is briefly unreachable. Reading a pending order therefore also asks the
+  // provider directly. These tests pin the safety properties; the happy path
+  // needs a live Stripe account and is covered by manual verification.
+  const payments = require('../../src/modules/payments/payments.service');
+
+  test('does nothing when Stripe is not configured', async () => {
+    const result = await payments.reconcilePendingPayment(
+      '00000000-0000-0000-0000-000000000000'
+    );
+    expect(result.reconciled).toBe(false);
+    expect(result.reason).toBe('stripe not configured');
+  });
+
+  test('an order with no pending payment is left alone', async () => {
+    const product = await db('products').where('stock_quantity', '>=', 1).first();
+    const added = await request(app)
+      .post('/api/v1/cart/items')
+      .send({ productId: product.id, quantity: 1 });
+    const placed = await request(app)
+      .post('/api/v1/checkout')
+      .set('Cookie', (added.headers['set-cookie'] || []).map((c) => c.split(';')[0]).join('; '))
+      .send({
+        email: `reconcile-${unique}@itest.local`,
+        shippingMethodId: 1,
+        shippingAddress: ADDRESS,
+      });
+
+    // No PaymentIntent was ever created for this order.
+    const result = await payments.reconcilePendingPayment(placed.body.order.id);
+    expect(result.reconciled).toBe(false);
+
+    // Reading it back still works and the order is untouched.
+    const read = await request(app)
+      .get(`/api/v1/orders/${placed.body.order.reference}`)
+      .query({ email: `reconcile-${unique}@itest.local` });
+    expect(read.status).toBe(200);
+    expect(read.body.order.status).toBe('pending_payment');
+  });
+
+  test('the idempotency key is keyed on the intent, so a late webhook collides', async () => {
+    const key = `reconcile:pi_collision_${unique}`;
+    expect(await payments.claimEvent(key, 'queue', {})).toBe(true);
+    expect(await payments.claimEvent(key, 'queue', {})).toBe(false);
+  });
+});

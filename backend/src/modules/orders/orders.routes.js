@@ -44,10 +44,23 @@ router.get('/orders', authenticate, validate(listOrdersSchema, 'query'), async (
 // the email the order was placed with.
 router.get('/orders/:identifier', optionalAuth, validate(lookupSchema, 'query'), async (req, res, next) => {
   try {
-    const order = await service.getOrderForViewer(req.params.identifier, {
+    let order = await service.getOrderForViewer(req.params.identifier, {
       userId: req.user && req.user.id,
       email: req.validated.query.email,
     });
+
+    // Self-healing: if the order still looks unpaid, ask Stripe directly
+    // rather than trusting that the webhook arrived. Covers a missed or
+    // delayed delivery, and costs one API call only while an order is
+    // genuinely pending.
+    if (order.status === 'pending_payment') {
+      const result = await paymentsService.reconcilePendingPayment(order.id);
+      if (result.reconciled) {
+        await new Promise((resolve) => setTimeout(resolve, 400)); // let the worker consume
+        order = await service.getOrderById(order.id);
+      }
+    }
+
     res.json({ order });
   } catch (err) {
     next(err);

@@ -130,6 +130,69 @@ async function handleStripeEvent(event) {
   return { published: true, orderId, succeeded };
 }
 
+// ---------- Reconciliation ----------
+//
+// Webhooks are a push mechanism, and pushes can be missed — the tunnel dies,
+// the server is restarting, the endpoint is briefly unreachable. Stripe does
+// retry, but an order left in pending_payment while the customer has actually
+// been charged is the worst failure mode this system has.
+//
+// So reads of a pending order also *pull*: ask Stripe what really happened and,
+// if it disagrees with us, feed the answer through exactly the same queue the
+// webhook uses. Same idempotency key, so whichever arrives second is ignored.
+async function reconcilePendingPayment(orderId) {
+  if (!config.stripe.secretKey) return { reconciled: false, reason: 'stripe not configured' };
+
+  const payment = await db('payments')
+    .where({ order_id: orderId, status: 'pending' })
+    .whereNotNull('provider_payment_id')
+    .first();
+  if (!payment) return { reconciled: false, reason: 'no pending payment' };
+
+  let intent;
+  try {
+    intent = await stripe().paymentIntents.retrieve(payment.provider_payment_id);
+  } catch (err) {
+    console.error('[reconcile]', err.message);
+    return { reconciled: false, reason: 'stripe unreachable' };
+  }
+
+  const settled = { succeeded: true, canceled: false };
+  if (!(intent.status in settled)) {
+    return { reconciled: false, reason: `still ${intent.status}` };
+  }
+  const succeeded = intent.status === 'succeeded';
+  const failure = intent.last_payment_error || {};
+
+  await db('payments')
+    .where({ id: payment.id })
+    .update({
+      status: succeeded ? 'succeeded' : 'cancelled',
+      failure_code: succeeded ? null : failure.code || null,
+      failure_message: succeeded ? null : failure.message || null,
+      updated_at: db.fn.now(),
+    });
+
+  // Keyed on the intent, not an event id, so a late webhook for the same
+  // payment still collides and is skipped.
+  const fresh = await claimEvent(`reconcile:${intent.id}`, 'queue', { orderId });
+  if (!fresh) return { reconciled: false, reason: 'already handled' };
+
+  await queue.publish(succeeded ? 'payment.succeeded' : 'payment.failed', {
+    eventId: `reconcile_${intent.id}`,
+    orderId,
+    paymentIntentId: intent.id,
+    succeeded,
+    amountCents: intent.amount,
+    failureCode: failure.code || null,
+    failureMessage: failure.message || null,
+    occurredAt: new Date().toISOString(),
+  });
+
+  console.log(`[reconcile] order ${orderId} -> ${intent.status} from Stripe`);
+  return { reconciled: true, status: intent.status };
+}
+
 // ---------- Refunds ----------
 
 async function refundOrder(orderId, { amountCents, reason, createdBy }) {
@@ -196,6 +259,7 @@ async function refundOrder(orderId, { amountCents, reason, createdBy }) {
 
 module.exports = {
   isConfigured,
+  reconcilePendingPayment,
   createPaymentIntent,
   verifySignature,
   handleStripeEvent,

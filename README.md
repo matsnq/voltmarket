@@ -236,6 +236,12 @@ Watch the whole chain as it happens: the `stripe listen` terminal shows the
 event and a `200`, `docker compose logs -f worker` shows the order transition,
 and the resulting email appears at http://localhost:8025.
 
+**If `stripe listen` stops**, its OAuth token has expired — run `stripe login`
+again and restart it. Any payment made while it was down is **not lost**:
+opening the order page asks Stripe directly what happened and feeds the answer
+through the same queue, so the order heals itself. The log line to look for is
+`[reconcile] order … -> succeeded from Stripe`.
+
 ### Demo accounts
 
 | Email                    | Password    | Role                                              |
