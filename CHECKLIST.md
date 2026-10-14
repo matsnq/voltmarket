@@ -27,7 +27,7 @@ Living self-review against the course's mandatory items. ✅ done · 🔜 planne
 - ✅ Faceted search (price range, brand, category, rating, EV range, stock)
 - ✅ Sorting: relevance, price, rating (+ newest)
 - ✅ Product images stored as files, served via /uploads
-- ✅ Automated Unit + API integration + Security tests (76 tests)
+- ✅ Automated Unit + API integration + Security tests
 - ✅ Architecture explanation (modular monolith, stateless API → horizontal scale)
 - ✅ Dockerized; Docker is the only host prerequisite
 
@@ -49,7 +49,7 @@ Living self-review against the course's mandatory items. ✅ done · 🔜 planne
 - ✅ Cancellation before processing, with stock release
 - ✅ Stripe PaymentIntents — card data never touches the server; verified end to end against the sandbox
 - ✅ Refund workflow (full and partial), with over-refund protection — verified against Stripe
-- ✅ Tests: cart unit, order summary unit, guest + logged-in checkout flows (115 total)
+- ✅ Tests: cart unit, order summary unit, guest + logged-in checkout flows (118 tests across the whole suite)
 - ✅ Single-page checkout UI, cart page and order confirmation page
 - ✅ Front-end card validation via Stripe PaymentElement (number, expiry, CVC)
 - ✅ Four payment failure scenarios verified: insufficient funds, expired card, incorrect CVC, processing error

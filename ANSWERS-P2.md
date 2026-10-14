@@ -297,6 +297,56 @@ State transitions:
 Transitions only apply from `pending_payment`, so a late or duplicate event
 cannot move a settled order backwards.
 
+### Webhooks can be missed, so the system also pulls
+
+A webhook is a *push*, and pushes get lost — the tunnel dies, the server is
+restarting, the endpoint is briefly unreachable. **This actually happened during
+development:** a real browser payment succeeded at Stripe while the
+`stripe listen` tunnel had died with an expired OAuth token. The customer was
+charged €1,011.99 and the order sat in `pending_payment`. Money had moved and
+the shop had no idea — the worst failure this system can produce.
+
+Relying on an inbound call alone is therefore not enough. Reading an order that
+still looks unpaid now also **pulls**: `reconcilePendingPayment()` asks Stripe
+what actually happened and, if Stripe disagrees with us, feeds the answer
+through *the same queue the webhook uses*, so there is exactly one code path
+that settles an order.
+
+```
+push:  Stripe ──► webhook ──────┐
+                                 ├──► RabbitMQ ──► worker ──► order settled
+pull:  order page ──► ask Stripe ┘
+```
+
+The idempotency key is the **PaymentIntent id**, not an event id:
+
+```js
+await claimEvent(`reconcile:${intent.id}`, 'queue', { orderId });
+```
+
+so a webhook that turns up late for a payment already reconciled collides on
+the primary key and is skipped. Whichever path arrives second does nothing, and
+an order can never be processed twice.
+
+It costs one API call, and only while an order is genuinely pending. It no-ops
+safely when Stripe is unconfigured.
+
+```bash
+# the log line proving a stuck order healed itself
+docker compose logs api | grep reconcile
+# [reconcile] order c8401601-… -> succeeded from Stripe
+docker compose logs worker | grep reconcile
+# [worker] order VM-RUZTFW -> paid (event reconcile_pi_3UQQBW…)
+```
+
+**Why this is the right design rather than a patch.** Stripe does retry a
+registered endpoint for days, so in production the push would usually recover
+on its own. But the shop should not depend on another company's retry schedule
+to know whether it has been paid. Reconciliation makes the correct state
+reachable at any moment from our side, and because both paths converge on the
+same consumer with the same guard, it adds a recovery route without adding a
+second way for things to go wrong.
+
 ## 20. The payment system publishes status updates to a message queue
 
 The webhook publishes to the `shop.events` topic exchange in RabbitMQ with
@@ -452,7 +502,7 @@ a saved address later cannot rewrite where a past order was shipped.
 
 ## 29. Student can explain their approach to testing cart functionality, checkout flows and payment integration
 
-**115 tests: 55 unit, 45 integration, 15 security.** Each layer earns its place.
+**118 tests: 55 unit, 48 integration, 15 security.** Each layer earns its place.
 
 **Cart — unit tests** (`tests/unit/cart.test.js`, 9 tests). Total calculation is
 a pure function, so it is tested without a database: quantity multiplication,
@@ -464,7 +514,7 @@ subtotal + shipping = total, line totals summing to the subtotal, free shipping
 as zero rather than absent, snapshot prices surviving catalog changes, and
 reference format.
 
-**Checkout — integration tests** (`tests/integration/checkout.test.js`, 17
+**Checkout — integration tests** (`tests/integration/checkout.test.js`, 20
 tests) through real HTTP against real Postgres and Redis, because the guest and
 logged-in journeys are properties of the whole request path. Guest shopping,
 merge on login, order history privacy, cancellation with stock release, and the
@@ -478,6 +528,17 @@ I verified that manually against the sandbox with the Stripe CLI, running the
 success path and all four failure scenarios end to end. Mocking Stripe would
 test my mock; using the sandbox tests the integration.
 
+That split has a limit worth admitting. The missed-webhook bug (item 19) was
+invisible to the whole test suite, because every automated test drove the queue
+directly and so always had a working delivery path. It only appeared when I
+paid through the browser with the tunnel dead. The lesson I took from it is
+that tests prove the paths you thought of; the ones you did not think of are
+found by using the thing. For reconciliation I automated the properties that
+can be pinned without a live account — that it no-ops when Stripe is
+unconfigured, leaves orders without a pending payment untouched, and that its
+idempotency key collides as intended — and verified the actual recovery by
+hand against the sandbox.
+
 ## 30. Automated tests exist for unit tests (cart, order calculations) and critical user flows (registration, checkout)
 
 | File | Layer | Tests | Covers |
@@ -485,11 +546,11 @@ test my mock; using the sandbox tests the integration.
 | `tests/unit/cart.test.js` | unit | 9 | item management, totals, stock flags |
 | `tests/unit/order-summary.test.js` | unit | 11 | pricing, shipping, snapshots, references |
 | `tests/integration/auth.test.js` | flow | 13 | **registration**, login, rotation, 2FA |
-| `tests/integration/checkout.test.js` | flow | 17 | **checkout** guest + logged-in, concurrency |
+| `tests/integration/checkout.test.js` | flow | 20 | **checkout** guest + logged-in, concurrency, reconciliation |
 | `tests/security/security.test.js` | security | 15 | injection, rate limiting, **encryption at rest** |
 
 ```bash
-cd backend && npm test          # all 115
+cd backend && npm test          # all 118
 npx jest tests/integration/checkout.test.js --verbose
 ```
 
@@ -548,3 +609,9 @@ reused intents instead of duplicates on reload.
 bounded retries and a dead-letter queue; idempotency via `processed_events`
 covering both Stripe and RabbitMQ at-least-once delivery; a customer-visible
 status timeline; partial and full refunds with over-refund protection.
+
+**Resilience.** Payment state is recoverable from both directions: the webhook
+pushes, and reading a pending order pulls from Stripe. Both converge on one
+consumer guarded by one idempotency key, so a missed webhook cannot leave a
+paid order looking unpaid, and a late webhook cannot double-process a
+reconciled one.

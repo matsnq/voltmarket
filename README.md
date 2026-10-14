@@ -32,7 +32,7 @@ can later be split into a microservice without rewriting business logic.
 - ✅ **Project 2 — Commerce**: guest and persistent carts with merge on login,
   single-page checkout, Stripe payments through the provider's own secure
   fields, RabbitMQ-driven order processing, order history, cancellations and
-  refunds. 115 automated tests.
+  refunds. 118 automated tests across the whole suite.
 - 🔜 **Project 3 — Experience**: product listing and detail pages, reviews,
   admin dashboard, SEO, accessibility pass, load testing.
 
@@ -374,7 +374,7 @@ cannot oversell the last unit"*.
 
 ## Testing
 
-76 tests: unit, API integration and security. With the stack already running
+118 tests: unit, API integration and security. With the stack already running
 (`docker compose up -d`), run them **without installing Node**:
 
 ```bash
