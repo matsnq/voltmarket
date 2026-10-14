@@ -211,6 +211,56 @@ async function cancelOrder(orderId, { userId, reason, byAdmin = false }) {
   });
 }
 
+// ---------- Fulfilment ----------
+//
+// Moving an order through the warehouse. Transitions are whitelisted rather
+// than freeform: an order may only advance along a defined path, so a typo
+// or a replayed request cannot send a delivered order back to processing.
+const FULFILMENT_FLOW = {
+  paid: ['processing', 'cancelled'],
+  processing: ['shipped'],
+  shipped: ['delivered'],
+};
+
+async function updateFulfilment(orderId, { status, trackingNumber, note, actorId }) {
+  return db.transaction(async (trx) => {
+    const order = await trx('orders').where({ id: orderId }).forUpdate().first();
+    if (!order) throw new HttpError(404, 'Order not found');
+
+    const allowed = FULFILMENT_FLOW[order.status] || [];
+    if (!allowed.includes(status)) {
+      throw new HttpError(
+        409,
+        `An order that is ${order.status.replace('_', ' ')} cannot become ${status.replace('_', ' ')}.` +
+          (allowed.length ? ` Allowed next: ${allowed.join(', ')}.` : '')
+      );
+    }
+
+    const patch = { status, updated_at: trx.fn.now() };
+    if (status === 'shipped') patch.shipped_at = trx.fn.now();
+    if (trackingNumber !== undefined) patch.tracking_number = trackingNumber || null;
+
+    const [updated] = await trx('orders').where({ id: orderId }).update(patch).returning('*');
+    await recordEvent(
+      trx,
+      orderId,
+      status,
+      note || (trackingNumber ? `Tracking: ${trackingNumber}` : null)
+    );
+
+    // Staff actions on someone else's order are auditable.
+    await trx('audit_logs').insert({
+      user_id: actorId || null,
+      action: `order.${status}`,
+      entity: 'orders',
+      entity_id: orderId,
+      meta: JSON.stringify({ from: order.status, to: status, trackingNumber: trackingNumber || null }),
+    });
+
+    return updated;
+  });
+}
+
 // ---------- Reading ----------
 
 function serializeOrder(order, items = [], events = [], shippingMethod = null) {
@@ -274,7 +324,7 @@ async function getOrderById(orderId) {
 
 // Guests have no account, so they retrieve an order with reference + email —
 // two pieces of information only the buyer should hold.
-async function getOrderForViewer(identifier, { userId, email }) {
+async function getOrderForViewer(identifier, { userId, email, staff = false }) {
   const query = db('orders').where(function where() {
     this.where('reference', identifier);
     // Only treat it as an id when it actually looks like one.
@@ -282,6 +332,8 @@ async function getOrderForViewer(identifier, { userId, email }) {
   });
   const order = await query.first();
   if (!order) throw new HttpError(404, 'Order not found');
+
+  if (staff) return getOrderById(order.id); // authorize() already checked the role
 
   if (order.user_id) {
     if (order.user_id !== userId) throw new HttpError(403, 'This is not your order');
@@ -340,6 +392,8 @@ async function listShippingMethods() {
 
 module.exports = {
   createOrder,
+  updateFulfilment,
+  FULFILMENT_FLOW,
   markPaid,
   markPaymentFailed,
   cancelOrder,

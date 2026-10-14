@@ -460,6 +460,40 @@ Guests have no account, so they authenticate with **reference + the email used**
 — two pieces of information only the buyer holds. The comparison uses the blind
 index, so the stored address is never decrypted merely to authorise a lookup.
 
+**Status updates and tracking.** Staff move an order along with
+`PATCH /orders/:reference/fulfilment`, which also attaches a carrier tracking
+number:
+
+```bash
+curl -k -X PATCH https://localhost/api/v1/orders/VM-XXXXXX/fulfilment \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"status":"shipped","trackingNumber":"EE 1234 5678 9EE"}'
+```
+
+Transitions are **whitelisted, not freeform** — `paid → processing → shipped →
+delivered` — so a typo or a replayed request cannot send a delivered order back
+to the warehouse. Each step appends to the customer-visible timeline and writes
+an `audit_logs` row naming the staff member, the transition and the tracking
+number.
+
+Access is restricted to `admin` and `sales`, and because the same `authorize`
+middleware guards it, **an admin who has not enrolled 2FA is refused**:
+
+```
+customer            → 403 Insufficient permissions
+admin without 2FA   → 403 Admins must enable two-factor authentication first
+admin with 2FA      → 200, order advances
+```
+
+Shipping it also closes cancellation, which is how the
+"cancel only before processing" rule becomes observable:
+
+```
+pending_payment -> paid -> processing -> shipped -> delivered
+# cancelling now: 409 "An order that is already delivered cannot be
+#                      cancelled. Request a refund instead."
+```
+
 ## 26. Order cancellation is allowed for unprocessed orders
 
 Permitted from `pending_payment` and `paid`; refused once `processing`,
@@ -513,7 +547,7 @@ a saved address later cannot rewrite where a past order was shipped.
 
 ## 29. Student can explain their approach to testing cart functionality, checkout flows and payment integration
 
-**118 tests: 55 unit, 48 integration, 15 security.** Each layer earns its place.
+**124 tests: 55 unit, 54 integration, 15 security.** Each layer earns its place.
 
 **Cart — unit tests** (`tests/unit/cart.test.js`, 9 tests). Total calculation is
 a pure function, so it is tested without a database: quantity multiplication,
@@ -525,7 +559,7 @@ subtotal + shipping = total, line totals summing to the subtotal, free shipping
 as zero rather than absent, snapshot prices surviving catalog changes, and
 reference format.
 
-**Checkout — integration tests** (`tests/integration/checkout.test.js`, 20
+**Checkout — integration tests** (`tests/integration/checkout.test.js`, 26
 tests) through real HTTP against real Postgres and Redis, because the guest and
 logged-in journeys are properties of the whole request path. Guest shopping,
 merge on login, order history privacy, cancellation with stock release, and the
@@ -557,11 +591,11 @@ hand against the sandbox.
 | `tests/unit/cart.test.js` | unit | 9 | item management, totals, stock flags |
 | `tests/unit/order-summary.test.js` | unit | 11 | pricing, shipping, snapshots, references |
 | `tests/integration/auth.test.js` | flow | 13 | **registration**, login, rotation, 2FA |
-| `tests/integration/checkout.test.js` | flow | 20 | **checkout** guest + logged-in, concurrency, reconciliation |
+| `tests/integration/checkout.test.js` | flow | 26 | **checkout** guest + logged-in, concurrency, reconciliation, fulfilment |
 | `tests/security/security.test.js` | security | 15 | injection, rate limiting, **encryption at rest** |
 
 ```bash
-cd backend && npm test          # all 118
+cd backend && npm test          # all 124
 npx jest tests/integration/checkout.test.js --verbose
 ```
 

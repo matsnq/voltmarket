@@ -533,7 +533,7 @@ than remembered.
 
 ## 23. Automated tests exist for Unit, API integration, and Security tests covering authentication and product catalog functionality
 
-The Project 1 suite is 76 tests (the repository now totals 118, the rest
+The Project 1 suite is 76 tests (the repository now totals 124, the rest
 covering Project 2 — see [ANSWERS.md](ANSWERS.md)):
 
 | File | Layer | Tests | Covers |

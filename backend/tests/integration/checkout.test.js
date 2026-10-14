@@ -397,3 +397,88 @@ describe('payment reconciliation (missed webhook recovery)', () => {
     expect(await payments.claimEvent(key, 'queue', {})).toBe(false);
   });
 });
+
+describe('order fulfilment', () => {
+  const orders = require('../../src/modules/orders/orders.service');
+
+  async function paidOrder() {
+    const product = await db('products').where('stock_quantity', '>=', 1).first();
+    const added = await request(app)
+      .post('/api/v1/cart/items')
+      .send({ productId: product.id, quantity: 1 });
+    const placed = await request(app)
+      .post('/api/v1/checkout')
+      .set('Cookie', (added.headers['set-cookie'] || []).map((c) => c.split(';')[0]).join('; '))
+      .send({
+        email: `fulfil-${Date.now()}@itest.local`,
+        shippingMethodId: 1,
+        shippingAddress: ADDRESS,
+      });
+    await orders.markPaid(placed.body.order.id);
+    return placed.body.order.id;
+  }
+
+  test('an order advances paid → processing → shipped → delivered', async () => {
+    const id = await paidOrder();
+    for (const status of ['processing', 'shipped', 'delivered']) {
+      const row = await orders.updateFulfilment(id, { status });
+      expect(row.status).toBe(status);
+    }
+    const final = await orders.getOrderById(id);
+    expect(final.timeline.map((t) => t.status)).toEqual([
+      'pending_payment', 'paid', 'processing', 'shipped', 'delivered',
+    ]);
+  });
+
+  test('a tracking number is recorded and surfaced', async () => {
+    const id = await paidOrder();
+    await orders.updateFulfilment(id, { status: 'processing' });
+    await orders.updateFulfilment(id, { status: 'shipped', trackingNumber: 'EE123456789' });
+    const order = await orders.getOrderById(id);
+    expect(order.trackingNumber).toBe('EE123456789');
+    expect(order.shippedAt).toBeTruthy();
+  });
+
+  test('transitions are whitelisted, so an order cannot skip or go backwards', async () => {
+    const id = await paidOrder();
+    // paid -> delivered skips two steps
+    await expect(orders.updateFulfilment(id, { status: 'delivered' })).rejects.toThrow(/cannot become/);
+    await orders.updateFulfilment(id, { status: 'processing' });
+    // and it cannot go back
+    await expect(orders.updateFulfilment(id, { status: 'processing' })).rejects.toThrow(/cannot become/);
+  });
+
+  test('a shipped order can no longer be cancelled', async () => {
+    const id = await paidOrder();
+    await orders.updateFulfilment(id, { status: 'processing' });
+    await orders.updateFulfilment(id, { status: 'shipped' });
+    const order = await orders.getOrderById(id);
+    expect(order.canCancel).toBe(false);
+    await expect(orders.cancelOrder(id, { byAdmin: true })).rejects.toThrow(/cannot be cancelled/);
+  });
+
+  test('staff actions are written to the audit log', async () => {
+    const id = await paidOrder();
+    await orders.updateFulfilment(id, { status: 'processing', note: 'Picked' });
+    const entries = await db('audit_logs').where({ entity: 'orders', entity_id: id });
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries[0].action).toBe('order.processing');
+  });
+
+  test('the fulfilment endpoint is closed to customers', async () => {
+    const id = await paidOrder();
+    const order = await orders.getOrderById(id);
+    const reg = await request(app).post('/api/v1/auth/register').send({
+      email: `notstaff-${Date.now()}@itest.local`,
+      password: 'Passw0rd1',
+      name: 'Not Staff',
+      captchaToken: 'ok',
+    });
+    const res = await request(app)
+      .patch(`/api/v1/orders/${order.reference}/fulfilment`)
+      .set('Authorization', `Bearer ${reg.body.accessToken}`)
+      .send({ status: 'shipped' });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/Insufficient permissions/);
+  });
+});

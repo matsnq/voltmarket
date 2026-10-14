@@ -68,12 +68,26 @@ const listOrdersSchema = z
 
 const cancelSchema = z.object({ reason: z.string().trim().max(500).optional() }).strict();
 
+const fulfilmentSchema = z
+  .object({
+    status: z.enum(['processing', 'shipped', 'delivered']),
+    trackingNumber: z
+      .string()
+      .trim()
+      .max(80)
+      .regex(/^[A-Za-z0-9 -]+$/, 'Tracking numbers are letters, digits, spaces and dashes')
+      .optional(),
+    note: z.string().trim().max(500).optional(),
+  })
+  .strict();
+
 const lookupSchema = z
   .object({ email: z.string().trim().toLowerCase().email().max(255).optional() })
   .strict();
 
 module.exports = {
   checkoutSchema,
+  fulfilmentSchema,
   listOrdersSchema,
   cancelSchema,
   lookupSchema,
