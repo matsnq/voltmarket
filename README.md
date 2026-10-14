@@ -261,17 +261,30 @@ checked against anything in test mode — the "expired card" and "incorrect CVC"
 results below come from their own card numbers, not from typing a past date or
 a wrong code.
 
-| Card number | What happens |
-|---|---|
-| `4242 4242 4242 4242` | ✅ Payment succeeds → order `paid`, confirmation email |
-| `4000 0000 0000 9995` | ❌ Insufficient funds → order `payment_failed`, stock released |
-| `4000 0000 0000 0069` | ❌ Expired card → `payment_failed` |
-| `4000 0000 0000 0127` | ❌ Incorrect CVC → `payment_failed` |
-| `4000 0000 0000 0119` | ❌ Processing error at the gateway → `payment_failed` |
-| `4242 4242 4242 4241` | 🚫 Fails the Luhn check — Stripe's own field rejects it before anything is submitted |
+| Scenario | Card number | What you see |
+|---|---|---|
+| **Success** | `4242 4242 4242 4242` | Order `paid`, confirmation email |
+| **Insufficient funds** | `4000 0000 0000 9995` | *"Your card was declined for insufficient funds. Try another card."* |
+| **Invalid card number** | `4242 4242 4242 4241` | Rejected by Stripe's field **before submission** — fails the Luhn checksum, so no payment is attempted |
+| **Expired card** | `4000 0000 0000 0069` | *"That card has expired. Please use a different card."* |
+| **Gateway error / timeout** | `4000 0000 0000 0119` | *"The payment provider had a problem processing your card. Please try again in a moment."* |
+| Incorrect CVC | `4000 0000 0000 0127` | *"The security code (CVC) is incorrect."* |
 
-Each failure shows a specific message on the page and returns the reserved
-stock to the catalog, so you can test them in any order.
+Every failure returns the reserved stock to the catalog and leaves the order
+`payment_failed`, so they can be tried in any order.
+
+Two honest notes about what the sandbox can and cannot do:
+
+- **Invalid card number is caught client-side**, not by a decline. Stripe's
+  field runs the Luhn checksum as you type, so a bad number never reaches the
+  network. That is the correct behaviour — the server handles the decline code
+  `incorrect_number` too, but Stripe will not normally let one through.
+- **There is no true "timeout" test card.** `4000 0000 0000 0119` produces
+  Stripe's `processing_error`, the gateway-side failure, which is the closest
+  the sandbox offers. The handler also maps `api_connection_error` and
+  `api_error`, and a genuine network failure (stop the API container mid-pay)
+  shows *"We could not reach the payment service. Check your connection and
+  retry."*
 
 Watch the whole chain as it happens: the `stripe listen` terminal shows the
 event and a `200`, `docker compose logs -f worker` shows the order transition,

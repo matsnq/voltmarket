@@ -402,13 +402,30 @@ Use these at `https://localhost/checkout`. **Only the card number matters** —
 type **any future expiry** (e.g. `12 / 30`) and **any 3-digit CVC** (e.g.
 `123`); neither is validated against anything in test mode.
 
-| Test card | Stripe code | Order status | Stock | Message shown |
-|---|---|---|---|---|
-| `4000 0000 0000 9995` | `insufficient_funds` | `payment_failed` | released | *"Your card was declined for insufficient funds. Try another card."* |
-| `4242 4242 4242 4241` | — | no order charged | — | rejected by the field (fails Luhn) |
-| `4000 0000 0000 0069` | `expired_card` | `payment_failed` | released | *"That card has expired. Please use a different card."* |
-| `4000 0000 0000 0127` | `incorrect_cvc` | `payment_failed` | released | *"The security code (CVC) is incorrect."* |
-| `4000 0000 0000 0119` | `processing_error` | `payment_failed` | released | *"The payment provider had a problem processing your card. Please try again in a moment."* |
+Mapped against the four the brief names:
+
+| Required scenario | Test card | Stripe code | Order status | Stock | Message shown |
+|---|---|---|---|---|---|
+| **Insufficient funds** | `4000 0000 0000 9995` | `insufficient_funds` | `payment_failed` | released | *"Your card was declined for insufficient funds. Try another card."* |
+| **Invalid card number** | `4242 4242 4242 4241` | — | never submitted | untouched | rejected by Stripe's field before any request (fails Luhn) |
+| **Expired card** | `4000 0000 0000 0069` | `expired_card` | `payment_failed` | released | *"That card has expired. Please use a different card."* |
+| **Gateway timeout / error** | `4000 0000 0000 0119` | `processing_error` | `payment_failed` | released | *"The payment provider had a problem processing your card. Please try again in a moment."* |
+| (extra) Incorrect CVC | `4000 0000 0000 0127` | `incorrect_cvc` | `payment_failed` | released | *"The security code (CVC) is incorrect."* |
+
+Two of those deserve a precise answer rather than a hand-wave:
+
+**Invalid card number never becomes a decline.** Stripe's field runs the Luhn
+checksum as the digits are typed, so a malformed number is refused locally and
+no request is made. That is the better outcome — a pointless round trip avoided
+— and the handler still maps `incorrect_number` and `invalid_number` for the
+rare case a network does surface one.
+
+**The sandbox has no true timeout card.** `processing_error` is the
+gateway-side failure Stripe can simulate, so that is what the "gateway
+timeout" case exercises. The handler additionally maps `api_connection_error`
+and `api_error`, and a real transport failure — stop the API container
+mid-payment — produces *"We could not reach the payment service. Check your
+connection and retry."* rather than a stack trace.
 
 Stripe's own messages are deliberately generic; `friendlyPaymentError()` in
 `PaymentSection.jsx` maps decline codes to guidance that tells the shopper what
