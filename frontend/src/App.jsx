@@ -8,6 +8,8 @@ import Register from './pages/auth/Register';
 import ForgotPassword from './pages/auth/ForgotPassword';
 import ResetPassword from './pages/auth/ResetPassword';
 import Account from './pages/Account';
+import ProductList from './pages/ProductList';
+import ProductDetail from './pages/ProductDetail';
 import Cart from './pages/Cart';
 import Checkout from './pages/Checkout';
 import OrderConfirmation from './pages/OrderConfirmation';
@@ -27,6 +29,9 @@ export default function App() {
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/account" element={<Account />} />
+              <Route path="/products" element={<ProductList />} />
+              <Route path="/products/:slug" element={<ProductDetail />} />
+              <Route path="/search" element={<ProductList />} />
               <Route path="/cart" element={<Cart />} />
               <Route path="/checkout" element={<Checkout />} />
               <Route path="/orders/:reference" element={<OrderConfirmation />} />

@@ -2,6 +2,7 @@ import { Link, NavLink } from 'react-router-dom';
 import { Zap, User, LogOut, ShoppingCart } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useCart } from '../../hooks/useCart';
+import QuickSearch from './QuickSearch';
 
 export default function Header() {
   const { user, logout } = useAuth();
@@ -14,15 +15,17 @@ export default function Header() {
 
   return (
     <header className="sticky top-0 z-20 border-b border-gray-200 bg-white/95 backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
-        <Link to="/" className="flex items-center gap-2 text-lg font-bold text-brand-700">
+      <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4">
+        <Link to="/" className="flex flex-none items-center gap-2 text-lg font-bold text-brand-700">
           <Zap className="h-5 w-5" aria-hidden="true" />
           Voltmarket
         </Link>
 
-        <nav aria-label="Main navigation" className="flex flex-none items-center gap-0.5 whitespace-nowrap sm:gap-1">
-          <NavLink to="/" className={`${navLinkClass({ isActive: false })} hidden sm:block`} end>
-            Home
+        <QuickSearch />
+
+        <nav aria-label="Main navigation" className="ml-auto flex flex-none items-center gap-0.5 whitespace-nowrap sm:gap-1">
+          <NavLink to="/products" className={`${navLinkClass({ isActive: false })} hidden sm:block`}>
+            Shop
           </NavLink>
 
           <NavLink to="/cart" className={navLinkClass}>
