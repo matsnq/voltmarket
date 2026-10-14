@@ -28,12 +28,37 @@ can later be split into a microservice without rewriting business logic.
 
 - ✅ **Project 1 — Foundation**: auth (JWT + rotation, CAPTCHA, 2FA, Google
   OAuth, password reset) with working UI pages, PostgreSQL schema + ERD,
-  product catalog with faceted search/suggestions/sorting, automated test
-  suite (76 tests).
-- 🔜 **Project 2 — Commerce**: cart, checkout, Stripe payments, RabbitMQ order
-  flow, order management.
-- 🔜 **Project 3 — Experience**: full storefront UI, reviews, admin dashboard,
-  security hardening, load testing.
+  product catalog with faceted search/suggestions/sorting.
+- ✅ **Project 2 — Commerce**: guest and persistent carts with merge on login,
+  single-page checkout, Stripe payments through the provider's own secure
+  fields, RabbitMQ-driven order processing, order history, cancellations and
+  refunds. 115 automated tests.
+- 🔜 **Project 3 — Experience**: product listing and detail pages, reviews,
+  admin dashboard, SEO, accessibility pass, load testing.
+
+### How an order flows through the system
+
+```
+Checkout  ──►  order: pending_payment          stock reserved under a row lock
+                      │
+                      ▼
+          Stripe PaymentElement (card data never reaches this server)
+                      │
+                      ▼
+          Stripe webhook ──► verify signature ──► publish to RabbitMQ ──► 200
+                                                         │
+                                                         ▼
+                                   worker: update order, adjust stock, email
+                                                         │
+                       ┌─────────────────────────────────┴───────────────┐
+                       ▼                                                 ▼
+             order: paid                                    order: payment_failed
+             stock stays reserved                           stock released
+```
+
+The webhook deliberately does the minimum and returns immediately — Stripe
+retries anything slow, so inventory changes and email live in the worker,
+behind bounded retries and a dead-letter queue.
 
 ## Entity Relationship Diagram
 
@@ -67,10 +92,13 @@ erDiagram
 
 ## Setup & installation
 
-**Docker is the only prerequisite** (Docker Desktop, or engine + compose v2).
-No Node, Postgres, Redis or OpenSSL on the host — not even to run the tests.
-Project 2 additionally needs the [Stripe CLI](https://docs.stripe.com/stripe-cli)
-for payment webhooks.
+**Docker** plus the **[Stripe CLI](https://docs.stripe.com/stripe-cli)** (the
+payment simulation CLI the brief allows). Nothing else: no Node, Postgres,
+Redis or OpenSSL on the host, not even to run the tests.
+
+The shop runs fully without Stripe keys — browsing, carts and order placement
+all work, and checkout simply reports that payment is unavailable while still
+reserving stock. Supply keys to exercise payments; see below.
 
 ```bash
 docker compose up --build
@@ -167,6 +195,47 @@ To see it working, create your own in about five minutes:
 `curl -k https://localhost/api/v1/auth/config` should then report
 `googleEnabled: true` and the button appears on `/login`.
 
+### Enabling payments (reviewers: read this)
+
+Like OAuth, Stripe credentials cannot be committed, so a fresh clone has none
+and checkout stops politely at the payment step. To exercise payments:
+
+1. Create a free account at [stripe.com](https://dashboard.stripe.com) and make
+   sure you are in a **sandbox / test mode** — never live.
+2. Copy both keys from **Developers → API keys** into `.env`:
+   ```
+   STRIPE_PUBLIC_KEY=pk_test_...
+   STRIPE_SECRET_KEY=sk_test_...
+   ```
+3. Install the CLI and log in, then start forwarding webhooks. Leave this
+   running in its own terminal:
+   ```bash
+   brew install stripe/stripe-cli/stripe && stripe login
+   stripe listen \
+     --events payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled \
+     --forward-to localhost:3000/api/v1/payments/webhook
+   ```
+4. It prints `whsec_…`. Put that in `.env` as `STRIPE_WEBHOOK_SECRET`.
+5. Apply all three with `docker compose up -d api` — **`up -d`, not `start` or
+   `restart`**, because only `up` re-reads `.env`.
+
+#### Test cards
+
+Any future expiry date and any CVC work with these.
+
+| Card number | What happens |
+|---|---|
+| `4242 4242 4242 4242` | Payment succeeds → order `paid`, confirmation email |
+| `4000 0000 0000 9995` | Insufficient funds → order `payment_failed`, stock released |
+| `4000 0000 0000 0069` | Expired card → `payment_failed` |
+| `4000 0000 0000 0127` | Incorrect CVC → `payment_failed` |
+| `4000 0000 0000 0119` | Processing error at the gateway → `payment_failed` |
+| `4242 4242 4242 4241` | Fails Luhn — rejected by Stripe's field before submission |
+
+Watch the whole chain as it happens: the `stripe listen` terminal shows the
+event and a `200`, `docker compose logs -f worker` shows the order transition,
+and the resulting email appears at http://localhost:8025.
+
 ### Demo accounts
 
 | Email                    | Password    | Role                                              |
@@ -193,6 +262,15 @@ Open https://localhost and accept the self-signed certificate warning.
 4. **Reset a password** — `/forgot-password`, then read the email at
    http://localhost:8025 and follow its link. Using the same link twice fails:
    reset tokens are single-use and expire after an hour.
+5. **Shop as a guest** — add items from `/cart`'s recommendations, change
+   quantities, then `/checkout`. Submit the form empty first to see per-field
+   validation. Place the order and pay with `4242 4242 4242 4242`.
+6. **Watch the cart follow you into your account** — fill a cart while logged
+   out, then log in. The guest cart merges into your account cart and
+   quantities are summed, capped at available stock.
+7. **Cancel an order** — from `/orders/<reference>` while it is still
+   `pending_payment` or `paid`. The reserved stock returns to the catalog
+   immediately; cancelling twice is refused.
 
 ## Usage guide (API)
 
@@ -220,6 +298,62 @@ curl -k -c jar.txt -X POST https://localhost/api/v1/auth/login \
 # Rotate the refresh token (each one is single-use; reuse revokes the family)
 curl -k -b jar.txt -c jar.txt -X POST https://localhost/api/v1/auth/refresh
 ```
+
+### Shopping, checkout and orders
+
+```bash
+# Add to a guest cart — the cookie jar is the guest's identity
+PRODUCT=$(curl -sk 'https://localhost/api/v1/products?brand=wallbox&perPage=1' \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["items"][0]["id"])')
+curl -k -c cart.txt -X POST https://localhost/api/v1/cart/items \
+  -H 'Content-Type: application/json' \
+  -d "{\"productId\":\"$PRODUCT\",\"quantity\":2}"
+
+# Read it back: line items, live totals and recommendations
+curl -k -b cart.txt https://localhost/api/v1/cart
+
+# Delivery options
+curl -k https://localhost/api/v1/shipping-methods
+
+# Place the order (works for guests; logged-in users just add the bearer token)
+curl -k -b cart.txt -X POST https://localhost/api/v1/checkout \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"you@example.com","shippingMethodId":1,
+       "shippingAddress":{"recipient":"Your Name","street":"Tartu mnt 5",
+       "city":"Tallinn","postalCode":"10117","country":"EE"}}'
+
+# A guest reads their order back with reference + the email used
+curl -k 'https://localhost/api/v1/orders/VM-XXXXXX?email=you@example.com'
+
+# Order history, filterable by status and date (requires a token)
+curl -k -H "Authorization: Bearer $TOKEN" \
+  'https://localhost/api/v1/orders?status=paid&from=2026-10-01&to=2026-10-31'
+
+# Cancel while the order is still unprocessed — stock returns to the catalog
+curl -k -X POST https://localhost/api/v1/orders/VM-XXXXXX/cancel \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"reason":"Changed my mind"}'
+```
+
+### Why overselling cannot happen
+
+Checkout runs as one transaction that locks the product rows it is about to
+decrement:
+
+```sql
+SELECT * FROM products WHERE id IN (…) ORDER BY id FOR UPDATE;
+```
+
+Postgres defaults to READ COMMITTED, where two shoppers can both read "1 in
+stock" and both proceed. The row lock serialises them — the second transaction
+waits for the first to commit, then re-reads the real number and fails
+validation. Locks are taken in id order so two orders containing the same
+products in different sequences cannot deadlock. Stock is reserved at
+placement rather than at payment, so reaching the payment step guarantees the
+item is yours; failures and cancellations release it.
+
+Proven by `tests/integration/checkout.test.js` → *"two concurrent checkouts
+cannot oversell the last unit"*.
 
 ### Token model (review talking points)
 

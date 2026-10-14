@@ -1,8 +1,8 @@
 # Entity Relationship Diagram — Voltmarket
 
-Canonical schema for the whole platform. Entities marked *(P2)* / *(P3)* arrive
-with Project 2 (Commerce) and Project 3 (Experience); everything else exists
-since Project 1.
+Canonical schema for the whole platform. Everything here exists and is in use
+except the entities marked *(P3)*, which arrive with Project 3 (Experience):
+`reviews` and `review_votes`.
 
 Conventions: every table has a surrogate **PK** (`uuid` for user-facing
 entities, serial for lookup tables). Money is stored as integer cents.
@@ -119,7 +119,7 @@ erDiagram
     }
 
     addresses {
-        uuid id PK "(P2)"
+        uuid id PK
         uuid user_id FK
         text recipient_enc "encrypted PII"
         text street_enc "encrypted PII"
@@ -130,21 +130,21 @@ erDiagram
     }
 
     carts {
-        uuid id PK "(P2)"
+        uuid id PK
         uuid user_id FK "null = guest cart"
         varchar guest_token UK "cookie for guests"
         timestamptz expires_at "guest carts expire"
     }
 
     cart_items {
-        uuid id PK "(P2)"
+        uuid id PK
         uuid cart_id FK
         uuid product_id FK
         int quantity "CHECK > 0"
     }
 
     shipping_methods {
-        int id PK "(P2)"
+        int id PK
         varchar name
         int price_cents
         varchar eta_days
@@ -152,10 +152,11 @@ erDiagram
     }
 
     orders {
-        uuid id PK "(P2)"
+        uuid id PK
         varchar reference UK "human order number"
         uuid user_id FK "null = guest order"
-        varchar email
+        text email_enc "AES-256-GCM encrypted buyer email"
+        varchar email_hash "HMAC blind index — lets guests look an order up"
         order_status status "pending_payment|paid|payment_failed|processing|shipped|delivered|cancelled|refunded"
         int subtotal_cents
         int shipping_cents
@@ -166,7 +167,7 @@ erDiagram
     }
 
     order_items {
-        uuid id PK "(P2)"
+        uuid id PK
         uuid order_id FK
         uuid product_id FK
         varchar name_snapshot "price/name frozen at purchase"
@@ -175,16 +176,34 @@ erDiagram
     }
 
     payments {
-        uuid id PK "(P2)"
+        uuid id PK
         uuid order_id FK
-        varchar stripe_payment_intent UK
-        payment_status status "pending|succeeded|failed"
+        varchar provider "stripe"
+        varchar provider_payment_id UK "Stripe PaymentIntent id — no card data"
+        payment_status status "pending|succeeded|failed|cancelled"
         int amount_cents
-        varchar failure_reason
+        varchar currency
+        varchar failure_code
+        text failure_message
+    }
+
+    order_events {
+        bigint id PK
+        uuid order_id FK
+        varchar status
+        text note
+        timestamptz created_at
+    }
+
+    processed_events {
+        varchar event_key PK "idempotency guard: stripe:evt_… or queue:evt_…"
+        varchar source "stripe | queue"
+        jsonb meta
+        timestamptz processed_at
     }
 
     refunds {
-        uuid id PK "(P2)"
+        uuid id PK
         uuid order_id FK
         uuid payment_id FK
         int amount_cents
@@ -230,6 +249,7 @@ erDiagram
 
     carts ||--o{ cart_items : "holds"
     orders ||--|{ order_items : "consists of"
+    orders ||--|{ order_events : "status history"
     orders ||--o{ payments : "paid via"
     orders ||--o{ refunds : "refunded by"
     payments |o--o{ refunds : "reversed by"
@@ -239,11 +259,21 @@ erDiagram
 
 ## Design notes (review talking points)
 
-- **ACID**: checkout runs in a single transaction — order + order items insert,
-  stock decrement with `SELECT … FOR UPDATE` row locks (prevents overselling),
-  cart clear. Either everything commits or nothing does (Atomicity). CHECK
-  constraints + FKs keep every committed state valid (Consistency). Row locks
-  serialize concurrent stock updates (Isolation). WAL guarantees Durability.
+- **ACID**: checkout runs in a single transaction — lock the product rows,
+  re-validate stock, insert the order and its items, decrement stock, clear
+  the cart. Either everything commits or nothing does (Atomicity). CHECK
+  constraints and FKs keep every committed state valid (Consistency). The
+  `FOR UPDATE` row locks serialise concurrent checkouts, which is what makes
+  overselling impossible (Isolation). The write-ahead log means a crash after
+  "order placed" cannot lose it (Durability).
+  Implemented in `backend/src/modules/orders/orders.service.js` → `createOrder`.
+- **Encrypted at rest**: `orders.email_enc` and `shipping_address_enc` are
+  AES-256-GCM ciphertext. Because AES-GCM is randomised it cannot be searched,
+  so `email_hash` stores an HMAC blind index — deterministic enough for a guest
+  to look up their order, but not brute-forceable without the key.
+- **No cardholder data, anywhere**: `payments` holds only Stripe's own
+  reference. There is no column that could store a card number, expiry or CVC,
+  which is a stronger position than encrypting them would be.
 - **Imperial units** are Postgres `GENERATED` columns derived from canonical
   metric values — they can never drift apart.
 - **Search** is a `GENERATED` weighted tsvector (name `A`, description `B`)
