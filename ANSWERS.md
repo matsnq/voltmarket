@@ -1,5 +1,7 @@
 # Voltmarket — Project 1 (Foundation) Assessment Answers
 
+> Project 2 (Commerce) criteria are answered in **[ANSWERS-P2.md](ANSWERS-P2.md)**.
+
 Every mandatory review item, in the order the audit lists them. Items phrased
 "the student can explain…" are answered in prose; items phrased "verify…" come
 with the command that proves them.

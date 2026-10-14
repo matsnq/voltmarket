@@ -424,7 +424,8 @@ backend/     Express API — src/modules/{auth,catalog,...}, migrations/, seeds/
 frontend/    React SPA (Vite + Tailwind)
 nginx/       TLS termination + static serving + API proxy (self-signed cert)
 docs/        ERD, (later: performance report, API docs)
-ANSWERS.md   every assessment criterion answered, with commands that prove it
+ANSWERS.md   Project 1 criteria answered, with commands that prove each
+ANSWERS-P2.md Project 2 criteria answered, with commands that prove each
 CHECKLIST.md progress tracker across all three projects
 ```
 

@@ -47,12 +47,14 @@ Living self-review against the course's mandatory items. ✅ done · 🔜 planne
   failure/cancellation — concurrent oversell proven impossible by test
 - ✅ Order filtering by date and status; detail view with status timeline
 - ✅ Cancellation before processing, with stock release
-- ✅ Stripe PaymentIntents — card data never touches the server (needs keys to demo)
-- ✅ Refund workflow (full and partial) — needs Stripe keys to exercise
-- ✅ Tests: cart unit, order summary unit, guest + logged-in checkout flows (113 total)
-- 🔜 Single-page checkout UI and order confirmation page (Project 3)
-- 🔜 Front-end card validation via Stripe Elements (Project 3)
-- 🔜 Manual: encryption in transit & at rest
+- ✅ Stripe PaymentIntents — card data never touches the server; verified end to end against the sandbox
+- ✅ Refund workflow (full and partial), with over-refund protection — verified against Stripe
+- ✅ Tests: cart unit, order summary unit, guest + logged-in checkout flows (115 total)
+- ✅ Single-page checkout UI, cart page and order confirmation page
+- ✅ Front-end card validation via Stripe PaymentElement (number, expiry, CVC)
+- ✅ Four payment failure scenarios verified: insufficient funds, expired card, incorrect CVC, processing error
+- ✅ Encryption at rest for order PII (AES-256-GCM + HMAC blind index), asserted by test
+- ✅ Project 2 answers documented in `ANSWERS-P2.md`
 
 ## Project 3 — Experience (🔜)
 
