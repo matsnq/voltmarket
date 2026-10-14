@@ -1,8 +1,25 @@
 # ⚡ Voltmarket — B2C E-commerce Platform for Electric Cars
 
-Final course task (**i-love-shopping**, Projects 1–3). Voltmarket is a
-Business-to-Consumer web shop selling **electric cars and EV accessories**
-(chargers, cables, tires, gear) — built API-first with a React storefront.
+Final course task (**i-love-shopping**). Voltmarket is a Business-to-Consumer
+web shop selling **electric cars and EV accessories** (chargers, cables, tires,
+gear) — built API-first with a React storefront.
+
+> ### 📍 Reviewing this? Start here
+>
+> **This submission is Project 2 — Commerce**: shopping cart, checkout,
+> payments and order management.
+>
+> - Criteria answered one by one, with commands that prove each: **[ANSWERS.md](ANSWERS.md)**
+> - Running it takes two things only: **Docker** and the **Stripe CLI** →
+>   [Setup & installation](#setup--installation)
+> - Payments need your own Stripe test keys (they cannot be committed) →
+>   [Enabling payments](#enabling-payments-reviewers-read-this)
+> - **No real card needed** — what to type at checkout:
+>   [Test cards](#-test-cards--what-to-type-at-checkout)
+>
+> Project 1 (Foundation) was submitted and reviewed earlier; its answers are
+> archived in [ANSWERS-P1.md](ANSWERS-P1.md) and you do not need them here.
+> Project 3 (Experience) has not been submitted yet.
 
 ## Project overview
 
@@ -219,18 +236,42 @@ and checkout stops politely at the payment step. To exercise payments:
 5. Apply all three with `docker compose up -d api` — **`up -d`, not `start` or
    `restart`**, because only `up` re-reads `.env`.
 
-#### Test cards
+### 💳 Test cards — what to type at checkout
 
-Any future expiry date and any CVC work with these.
+**No real card is ever needed.** At `https://localhost/checkout`, fill the
+payment form like this:
+
+| Field | What to enter |
+|---|---|
+| **Card number** | one of the numbers in the table below |
+| **Expiry date** | **any date in the future** — e.g. `12 / 30` |
+| **Security code (CVC)** | **any 3 digits** — e.g. `123` |
+| **Country** | anything; it does not affect the result |
+
+So the quickest successful payment is:
+
+```
+Card number   4242 4242 4242 4242
+Expiry        12 / 30
+CVC           123
+```
+
+Only the **card number** decides what happens. Expiry and CVC are never
+checked against anything in test mode — the "expired card" and "incorrect CVC"
+results below come from their own card numbers, not from typing a past date or
+a wrong code.
 
 | Card number | What happens |
 |---|---|
-| `4242 4242 4242 4242` | Payment succeeds → order `paid`, confirmation email |
-| `4000 0000 0000 9995` | Insufficient funds → order `payment_failed`, stock released |
-| `4000 0000 0000 0069` | Expired card → `payment_failed` |
-| `4000 0000 0000 0127` | Incorrect CVC → `payment_failed` |
-| `4000 0000 0000 0119` | Processing error at the gateway → `payment_failed` |
-| `4242 4242 4242 4241` | Fails Luhn — rejected by Stripe's field before submission |
+| `4242 4242 4242 4242` | ✅ Payment succeeds → order `paid`, confirmation email |
+| `4000 0000 0000 9995` | ❌ Insufficient funds → order `payment_failed`, stock released |
+| `4000 0000 0000 0069` | ❌ Expired card → `payment_failed` |
+| `4000 0000 0000 0127` | ❌ Incorrect CVC → `payment_failed` |
+| `4000 0000 0000 0119` | ❌ Processing error at the gateway → `payment_failed` |
+| `4242 4242 4242 4241` | 🚫 Fails the Luhn check — Stripe's own field rejects it before anything is submitted |
+
+Each failure shows a specific message on the page and returns the reserved
+stock to the catalog, so you can test them in any order.
 
 Watch the whole chain as it happens: the `stripe listen` terminal shows the
 event and a `200`, `docker compose logs -f worker` shows the order transition,
@@ -430,8 +471,8 @@ backend/     Express API — src/modules/{auth,catalog,...}, migrations/, seeds/
 frontend/    React SPA (Vite + Tailwind)
 nginx/       TLS termination + static serving + API proxy (self-signed cert)
 docs/        ERD, (later: performance report, API docs)
-ANSWERS.md   Project 1 criteria answered, with commands that prove each
-ANSWERS-P2.md Project 2 criteria answered, with commands that prove each
+ANSWERS.md    Project 2 criteria answered, with commands that prove each
+ANSWERS-P1.md Project 1 criteria, from the earlier submission
 CHECKLIST.md progress tracker across all three projects
 ```
 

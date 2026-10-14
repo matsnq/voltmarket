@@ -2,6 +2,9 @@
 
 Living self-review against the course's mandatory items. ✅ done · 🔜 planned.
 
+**Current submission: Project 2 (Commerce).** Project 1 was submitted and
+reviewed previously; Project 3 has not started.
+
 ## Project 1 — Foundation
 
 - ✅ README: overview, ERD, setup instructions, usage guide
@@ -54,7 +57,7 @@ Living self-review against the course's mandatory items. ✅ done · 🔜 planne
 - ✅ Front-end card validation via Stripe PaymentElement (number, expiry, CVC)
 - ✅ Four payment failure scenarios verified: insufficient funds, expired card, incorrect CVC, processing error
 - ✅ Encryption at rest for order PII (AES-256-GCM + HMAC blind index), asserted by test
-- ✅ Project 2 answers documented in `ANSWERS-P2.md`
+- ✅ Project 2 answers documented in `ANSWERS.md`
 
 ## Project 3 — Experience (🔜)
 

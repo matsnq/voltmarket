@@ -1,656 +1,628 @@
-# Voltmarket — Project 1 (Foundation) Assessment Answers
+# Voltmarket — Assessment Answers
 
-> Project 2 (Commerce) criteria are answered in **[ANSWERS-P2.md](ANSWERS-P2.md)**.
+**This submission is Project 2 (Commerce)** — shopping cart, checkout,
+payments and order management. Everything below answers the Project 2 review
+criteria.
 
-Every mandatory review item, in the order the audit lists them. Items phrased
-"the student can explain…" are answered in prose; items phrased "verify…" come
-with the command that proves them.
+Voltmarket is built in three stages. Project 1 (Foundation: authentication,
+database, product catalog) was submitted and reviewed previously; its criteria
+are answered in **[ANSWERS-P1.md](ANSWERS-P1.md)** if you want the background,
+but you do **not** need it to review this submission. Project 3 (Experience)
+is not yet submitted.
 
-Assumes the stack is running (`docker compose up --build`). The API is reachable
-at `https://localhost/api/v1` through nginx (self-signed cert, hence `curl -k`)
-and directly on `http://localhost:3000` for convenience.
+Every mandatory review item for Project 2, in the order the audit lists them.
+Explanation items are answered in prose; verifiable items come with the command
+that proves them.
+
+Assumes the stack is running (`docker compose up --build`) and, for the payment
+items, that Stripe keys are configured and `stripe listen` is forwarding — see
+**Enabling payments** in the README.
 
 ---
 
-## 1. The README file contains a clear project overview, entity relationship diagram, setup instructions, and usage guide
+## 1. The README contains an updated project overview, ERD, setup instructions and usage guide for the commerce functionality
 
-`README.md` has all four: an overview with the stack table and architecture
-rationale, a condensed Mermaid ERD (full version in `docs/erd.md`), setup as a
-single `docker compose up --build`, and a usage guide with runnable `curl`
-examples plus a browser walkthrough.
+`README.md` covers all four for commerce specifically: the status section lists
+what Project 2 delivers and includes a diagram of the order lifecycle; the ERD
+(full version in `docs/erd.md`) now contains every commerce table with no
+"future work" markers; setup adds the Stripe CLI prerequisite with step-by-step
+key configuration and a test-card table; and the usage guide has runnable
+`curl` examples for cart, shipping methods, checkout, guest order lookup, order
+history and cancellation.
 
-## 2. The platform implements a Business-to-Consumer (B2C) e-commerce model
+## 2. The database schema supports the shopping cart, including guest carts and persistent carts
 
-Voltmarket sells electric cars and EV accessories directly to individual
-consumers. One seller (the shop), many private buyers — no vendor onboarding, no
-business-account tier, no marketplace commission model. The catalog is split
-into `Electric Cars` (sedans, SUVs, hatchbacks, vans) and
-`Charging & Accessories` (home chargers, cables, tires, care products), which is
-a consumer retail structure rather than a wholesale one.
+```mermaid
+erDiagram
+    users |o--o{ carts : "owns (guests: none)"
+    carts ||--o{ cart_items : "holds"
+    products ||--o{ cart_items : "appears in"
+```
 
-## 3. The system implements both email-password and OAuth authentication methods
+One `carts` table serves both cases, distinguished by which owner column is
+populated:
 
-Both live in `backend/src/modules/auth/`:
+| Column | Guest cart | Logged-in cart |
+|---|---|---|
+| `user_id` | `NULL` | the owner |
+| `guest_token` | random cookie token | `NULL` |
+| `expires_at` | 30 days | `NULL` — persists indefinitely |
 
-- **Email + password** — `POST /auth/register` and `POST /auth/login`. Passwords
-  are hashed with bcrypt (cost 10) in `auth.service.js`.
-- **Google OAuth 2.0** — the authorization-code flow, written out by hand rather
-  than using a passport strategy, so every step is visible:
-  `googleAuthUrl()` builds the consent URL with a CSRF `state` stored in Redis
-  for 10 minutes; `googleCallback()` validates that state, exchanges the code at
-  `oauth2.googleapis.com/token`, fetches the profile from the OIDC userinfo
-  endpoint, then links or creates the user and issues **our own** JWT pair.
+Two constraints enforce the rule rather than trusting application code:
 
-Providers are stored in a separate `oauth_accounts` table keyed by
-`(provider, provider_user_id)`, so adding Facebook later is a new row type, not
-a schema change. If a Google account's email matches an existing local account,
-the two are linked inside a transaction instead of creating a duplicate user.
+```sql
+-- exactly one kind of owner, never both and never neither
+CHECK ((user_id IS NOT NULL AND guest_token IS NULL)
+    OR (user_id IS NULL AND guest_token IS NOT NULL))
+
+-- a user can only ever have one cart
+CREATE UNIQUE INDEX carts_one_per_user ON carts (user_id) WHERE user_id IS NOT NULL;
+```
+
+`cart_items` has `UNIQUE (cart_id, product_id)`, so a product appears once with
+a quantity rather than as repeated rows, and `CHECK (quantity > 0)`.
+
+**Why server-side rather than a cookie or localStorage:** a cart in browser
+storage cannot be merged on login without the client replaying it, is lost when
+the shopper switches device, and cannot be read by the checkout transaction.
+
+## 3. The cart displays product information for each item, including name, price and a thumbnail
+
+`GET /api/v1/cart` returns everything the page renders, and the cart page shows
+it at `/cart`.
 
 ```bash
-# OAuth availability is reported to the SPA at runtime:
-curl -k https://localhost/api/v1/auth/config
-# {"recaptchaSiteKey":"...","googleEnabled":true}   (false until keys are set)
+curl -k -b cart.txt https://localhost/api/v1/cart
 ```
 
-## 4. CAPTCHA is integrated into the registration process
+Each line carries `name`, `unitPrice`, `lineTotal`, `quantity`, `image`,
+`imageAlt`, `stockQuantity`, plus two flags the UI acts on: `exceedsStock` and
+`unavailable`.
 
-Google reCAPTCHA v2 checkbox. The widget renders on `/register`
-(`frontend/src/components/Recaptcha.jsx`) using a site key fetched at runtime
-from `GET /auth/config` — so keys change without rebuilding the SPA.
+## 4. Users can add, remove and update quantities with real-time total calculations
 
-The important half is server-side: `register()` calls `verifyCaptcha()`
-(`backend/src/lib/recaptcha.js`) **before** touching the database, POSTing the
-token to `https://www.google.com/recaptcha/api/siteverify`. Client-side
-checking alone would be bypassable with a single `curl`. Verification fails
-closed — if Google is unreachable, registration is refused rather than allowed.
+| Action | Endpoint |
+|---|---|
+| Add | `POST /cart/items` |
+| Update quantity | `PATCH /cart/items/:itemId` |
+| Remove | `DELETE /cart/items/:itemId` |
+| Empty the cart | `DELETE /cart` |
 
-The committed default keys are Google's published *test* keys, which always
-pass, so the project runs with no setup; real keys go in `.env`.
+Every mutation returns the **recalculated cart**, so the browser never derives
+totals itself and cannot drift from the server. Totals are computed by
+`calculateTotals()` in `cart.service.js`, which is a pure function — hence
+unit-testable without a database (`tests/unit/cart.test.js`).
 
-## 5. Student can explain the concept of JWT and its components (header, payload, signature)
+Money is integer cents throughout. Binary floating point cannot represent 0.10
+exactly, so repeated float arithmetic drifts; one test adds ten 10-cent lines
+and asserts exactly 100.
 
-A JWT is three base64url-encoded strings joined by dots:
-`header.payload.signature`.
+## 5. A guest cart is implemented for non-registered users
 
-- **Header** — `{"alg":"HS256","typ":"JWT"}`: which algorithm signs the token.
-- **Payload** — the claims. Ours carries `sub` (user id), `role`, `name`, `jti`
-  (unique token id, used for revocation), plus `iat`, `exp` and `iss` added by
-  the library. This is **encoded, not encrypted** — anyone holding the token can
-  read it, so it must never contain secrets.
-- **Signature** — `HMAC-SHA256(header + "." + payload, secret)`. It proves the
-  token was issued by us and has not been altered. Change a single byte of the
-  payload and verification fails, because the recomputed HMAC no longer matches.
+On first add, the server mints a random token, stores the cart row and sets an
+`httpOnly` cookie. The shopper needs no account and the cart survives a browser
+restart because the contents live in Postgres, not the cookie.
 
-That is the whole value of a JWT: the server can trust the claims after one
-cheap cryptographic check, with no database lookup and no session store — which
-is precisely what lets the API scale horizontally.
+The cookie is `SameSite=Lax` rather than `Strict` — deliberately, because the
+shopper returns from Stripe's domain and a `Strict` cookie would not be sent on
+that navigation, losing the cart at the worst possible moment.
+
+## 6. A persistent cart is implemented for logged-in users, retained across sessions
+
+A logged-in cart is keyed by `user_id` with no expiry, so it is still there on
+the next device or next month.
+
+**The interesting case is the merge.** When a request arrives with both a guest
+cookie and a valid token, `mergeGuestIntoUser()` runs first, in a transaction:
+quantities for the same product are **summed**, then capped at available stock
+and the 20-per-line maximum; the guest cart is deleted. Summing is the correct
+behaviour — a shopper who added two chargers while logged out and one while
+logged in wants three, not whichever cart happened to win.
 
 ```bash
-# Decode a real token's header and payload (signature stays opaque):
-TOKEN=$(curl -sk -X POST https://localhost/api/v1/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"demo@voltmarket.local","password":"Demo123!"}' | sed 's/.*"accessToken":"\([^"]*\)".*/\1/')
-# base64url needs its padding restored, hence the python one-liner
-decode() { python3 -c 'import sys,base64,json; s=sys.stdin.read().strip(); print(json.dumps(json.loads(base64.urlsafe_b64decode(s+"="*(-len(s)%4))),indent=2))'; }
-echo "$TOKEN" | cut -d. -f1 | decode    # header
-echo "$TOKEN" | cut -d. -f2 | decode    # payload
-echo "$TOKEN" | cut -d. -f3            # signature — opaque, not decodable
+# 1. add to the account cart while logged in
+curl -k -H "Authorization: Bearer $TOKEN" -X POST https://localhost/api/v1/cart/items \
+  -H 'Content-Type: application/json' -d "{\"productId\":\"$P\",\"quantity\":1}"
+# 2. add to a guest cart while logged out
+curl -k -c guest.txt -X POST https://localhost/api/v1/cart/items \
+  -H 'Content-Type: application/json' -d "{\"productId\":\"$P\",\"quantity\":2}"
+# 3. present both -> merged to 3
+curl -k -b guest.txt -H "Authorization: Bearer $TOKEN" https://localhost/api/v1/cart
 ```
 
-Expected payload:
+Covered by `tests/integration/checkout.test.js` → *"a guest cart merges into the
+account on login"*.
 
-```json
-{ "sub": "4f91e695-…", "role": "customer", "name": "Demo Customer",
-  "jti": "7b1e8054-…", "iat": 1789998539, "exp": 1789999439, "iss": "voltmarket" }
-```
+## 7. Out-of-stock scenarios are handled gracefully when adding to the cart
 
-Note `exp - iat = 900` seconds — the 15-minute access-token lifetime.
+Three layers, each with a message that tells the shopper what to do:
 
-Tests covering this: `backend/tests/unit/jwt.test.js` asserts the three-part
-structure, the exact header, the claim set, expiry, and that both a wrong
-signing secret and a tampered payload are rejected.
+- Product with zero stock → `409 "This product is out of stock"`
+- Requesting more than exists → `409 "Only 3 left in stock and you already have 2 in your cart."`
+- Above the per-line cap → `400 "You can order at most 20 of one item."`
 
-## 6. Access tokens are stored in memory
+If stock falls *after* an item is already in a cart, the line is **flagged, not
+silently reduced** (`exceedsStock: true`). Quietly changing someone's basket is
+worse than telling them; checkout then refuses until it is corrected.
 
-`accessToken` is a module-scoped variable in `frontend/src/lib/api.js` — not
-`localStorage`, not `sessionStorage`, not even React state. Any script that
-achieves XSS can enumerate browser storage; it cannot read a closure variable
-by name.
+## 8. The system implements a single-page checkout
 
-Verify in DevTools → Application while logged in: both storages are empty, and
-`document.cookie` returns `""` because the refresh cookie is `httpOnly`.
+`/checkout` is one page and one URL. The left panel is a live order summary
+where quantities can still be changed; the right panel holds contact details,
+delivery address, delivery method and payment. The stepper at the top is a
+**progress indicator, not navigation** — nothing routes away mid-checkout.
 
-```js
-// paste in the browser console while logged in
-({ localStorage: localStorage.length, sessionStorage: sessionStorage.length, cookies: document.cookie })
-// → { localStorage: 0, sessionStorage: 0, cookies: "" }
-```
+## 9. The checkout page collects basic information, address input and payment selection
 
-The trade-off is that a page reload loses the token. `AuthProvider`
-(`frontend/src/hooks/useAuth.jsx`) covers that on mount by calling
-`POST /auth/refresh`; the httpOnly cookie rides along automatically and a fresh
-access token lands back in memory. So the session survives F5 without ever
-persisting a token to disk.
+Contact (email), delivery address (recipient, street, city, postal code,
+country, optional phone), delivery method (four options with prices and ETAs),
+then payment via Stripe's `PaymentElement`, which itself offers the payment
+methods enabled on the account.
 
-## 7. Refresh token rotation is implemented with single-use validation
+## 10. For logged-in users, known information is pre-filled
 
-`rotateRefreshToken()` in `backend/src/modules/auth/token.service.js`:
+`Checkout.jsx` fills email, recipient name and phone from the authenticated
+profile on mount. Guests see an inline prompt to log in instead, with their
+cart preserved.
 
-1. Look up the presented token by its **sha256 hash** (raw tokens are never
-   stored, so a database dump yields nothing usable).
-2. Reject it if revoked or expired.
-3. If `used_at` is already set → treat as theft (see item 8).
-4. Otherwise claim it atomically:
-   `UPDATE … WHERE id = ? AND used_at IS NULL`. If that update affects zero
-   rows, a concurrent request won the race, which is also treated as reuse.
-5. Issue a replacement token in the **same `family_id`** and return it.
+## 11. The system validates the entered shipping address for accuracy
 
-Refresh tokens are opaque 48-byte random values rather than JWTs, precisely
-because they must be checked against the database on every use — the opposite
-trade-off from access tokens.
-
-## 8. Verify that each refresh token can only be used once and a new refresh token is issued with each refresh; old refresh tokens must be rejected
-
-Rotation groups tokens into a **family** (`family_id`). Reuse of a spent token
-means two copies exist in the wild, so `revokeFamily()` revokes the entire
-chain — the legitimate user is logged out and must re-authenticate, which is
-the correct response to a stolen token.
-
-```bash
-# 1. log in — stores the refresh cookie in jar1
-curl -sk -c jar1.txt -X POST https://localhost/api/v1/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"demo@voltmarket.local","password":"Demo123!"}' -o /dev/null
-
-# 2. refresh with it — succeeds, writes a DIFFERENT cookie to jar2
-curl -sk -b jar1.txt -c jar2.txt -X POST https://localhost/api/v1/auth/refresh | head -c 80; echo
-
-# 3. replay the OLD cookie — rejected as reuse
-curl -sk -b jar1.txt -X POST https://localhost/api/v1/auth/refresh
-# {"error":"Refresh token reuse detected — all sessions in this chain were revoked"}
-
-# 4. the NEW cookie is now dead too, because the whole family was revoked
-curl -sk -b jar2.txt -X POST https://localhost/api/v1/auth/refresh
-# {"error":"Refresh token revoked"}
-```
-
-Automated equivalent: `tests/integration/auth.test.js` →
-*"refresh rotates the token; the old one is single-use; reuse revokes the family"*.
-
-## 9. Token revocation mechanism is in place for both access and refresh tokens
-
-The two token types need different mechanisms, which is worth saying out loud:
-
-- **Refresh tokens** are stateful — revocation sets `revoked_at` in the
-  `refresh_tokens` table. `revokeRefreshToken()` kills one,
-  `revokeFamily()` a rotation chain, `revokeAllForUser()` every session.
-- **Access tokens** are stateless and self-validating, so they cannot be
-  "deleted". Instead `revokeAccessToken()` writes the token's `jti` to a Redis
-  denylist with a TTL equal to its **remaining lifetime**, and the
-  `authenticate` middleware checks that denylist on every request. Once the
-  token would have expired anyway, Redis drops the key on its own, so the
-  denylist can never grow without bound.
-
-`POST /auth/logout` revokes both. `POST /auth/logout-all` revokes every session
-for the user. A password reset also calls `revokeAllForUser()`.
-
-```bash
-# access token dies immediately on logout
-TOKEN=$(curl -sk -c j.txt -X POST https://localhost/api/v1/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"demo@voltmarket.local","password":"Demo123!"}' | sed 's/.*"accessToken":"\([^"]*\)".*/\1/')
-curl -sk -H "Authorization: Bearer $TOKEN" https://localhost/api/v1/auth/me -o /dev/null -w 'before logout: %{http_code}\n'
-curl -sk -b j.txt -H "Authorization: Bearer $TOKEN" -X POST https://localhost/api/v1/auth/logout -o /dev/null
-curl -sk -H "Authorization: Bearer $TOKEN" https://localhost/api/v1/auth/me -o /dev/null -w 'after logout:  %{http_code}\n'
-# before logout: 200 / after logout: 401
-```
-
-## 10. Password recovery and reset functionality via email is implemented
-
-`POST /auth/password/forgot` → `POST /auth/password/reset`, with the email sent
-through Mailpit (a dev SMTP server with a web inbox at http://localhost:8025,
-so no external mail provider is needed to review this).
-
-Security properties, all deliberate:
-
-- The forgot endpoint **always** returns the same 200 response whether or not
-  the account exists — otherwise it becomes an account-enumeration oracle.
-- The token is 48 random bytes, stored **sha256-hashed**, and expires in 1 hour.
-- Redeeming it happens inside a transaction that first claims the token
-  (`WHERE used_at IS NULL`) and only then writes the new password hash, so a
-  crash between the two cannot leave a spent token with an unchanged password.
-- A successful reset calls `revokeAllForUser()` — changing your password logs
-  out every existing session, which is what a user resetting after a
-  compromise expects.
-
-Walkthrough: submit `/forgot-password` in the UI, open http://localhost:8025,
-follow the link, set a new password, then try the same link again — it fails.
-
-## 11. Two-factor authentication (2FA) is available as an optional, user-enabled feature
-
-TOTP (RFC 6238) via `otplib`, opt-in per user from `/account`:
-
-1. `POST /auth/2fa/setup` generates a secret, stores it **encrypted**, and
-   returns a QR data-URL (`otpauth://` URI) for Google Authenticator or Authy.
-2. `POST /auth/2fa/enable` requires a valid 6-digit code to prove the app is
-   really enrolled, then returns **8 recovery codes shown exactly once** and
-   stored only as sha256 hashes.
-3. Login then requires the code: the API answers `401` with
-   `details.code = "2FA_REQUIRED"`, and the UI grows a second step rather than
-   sending the user back to the start.
-4. A recovery code is accepted in place of an app code and is consumed on use.
-5. `POST /auth/2fa/disable` needs a valid code and wipes the secret and codes.
-
-Two details worth volunteering: codes are accepted **±1 time step**
-(RFC 6238 §5.2) so a code typed as it rolls over still works — without this,
-users hit spurious failures at 30-second boundaries. And **admins cannot
-disable 2FA**: the `authorize` middleware refuses admin access entirely while
-`totp_enabled` is false, which satisfies the Project 3 rule that all admins have
-2FA on.
-
-Demo: `/account` → *Set up 2FA* → scan → enter code → save recovery codes → log
-out → log in and watch the second step appear.
-
-## 12. User input validation is implemented on both client and server sides for authentication forms
-
-- **Server** (the security boundary) — zod schemas in
-  `backend/src/modules/auth/auth.validation.js`, applied by the `validate`
-  middleware. Every schema is `.strict()`, so unexpected fields are rejected
-  outright rather than ignored — that is whitelisting, and it stops a client
-  from smuggling `role: "admin"` into a registration payload.
-- **Client** (UX only) — `frontend/src/lib/validators.js` mirrors the same
-  rules for instant feedback on blur, with errors tied to inputs via
-  `aria-describedby` and announced with `role="alert"`.
-
-The audit asks for three kinds of validation and all three are present:
+Two layers. The client mirrors the rules for instant feedback; the **server is
+the authority**, because anyone can bypass a browser with `curl`.
 
 | Kind | Example |
 |---|---|
-| Syntactic | email shape, 6-digit OTP, 96-hex reset token, password length |
-| Semantic | `minPrice ≤ maxPrice`, `page ≤ 1000`, rating within 0–5 |
-| Whitelisting | `.strict()` objects, `sort` as an enum, brand slugs `^[a-z0-9-]+$` |
+| Syntactic | email shape, postal code `^[A-Za-z0-9 -]+$`, phone `^\+?[0-9 ()-]{5,20}$` |
+| Semantic | country must be one we actually ship to |
+| Whitelisting | `.strict()` — unknown fields rejected, not ignored |
 
-Be explicit at review that client validation adds **no** security — anyone can
-skip the browser and call the API directly. It exists so users learn about a
-mistake without a round trip.
+The country check is a **whitelist of 16 destinations**, not a blocklist:
 
 ```bash
-# server rejects bad input with per-field messages
-curl -sk -X POST https://localhost/api/v1/auth/register \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"nope","password":"short","name":"X","captchaToken":"t"}'
+curl -k -X POST https://localhost/api/v1/checkout -H 'Content-Type: application/json' \
+  -d '{"email":"a@b.co","shippingMethodId":1,"shippingAddress":{"recipient":"Test",
+       "street":"Main 1","city":"NYC","postalCode":"10001","country":"US"}}'
+# {"error":"Validation failed","details":[{"field":"shippingAddress.country",
+#  "message":"We do not ship to that country yet"}]}
 ```
 
-## 13. Student can explain the chosen database's scalability features and how they support potential growth
+## 12. An order summary is provided during checkout, showing all items, quantities and costs
 
-PostgreSQL 16. The scaling path, in the order it would actually be applied:
+The left panel lists every line with thumbnail, unit price, quantity and line
+total, then subtotal, shipping (updating live as the delivery method changes)
+and total. Quantities remain editable and items removable **without leaving
+checkout**.
 
-1. **Indexing** — every foreign key and filter column is indexed, plus a GIN
-   index on the search vector (`products_search_idx`) and a trigram index for
-   suggestions (`products_name_trgm_idx`). This is the cheapest and largest win.
-2. **Caching** — `backend/src/lib/cache.js` is a read-through Redis cache with
-   short TTLs on catalog reads. E-commerce traffic is overwhelmingly reads, so
-   absorbing them outside the database protects it during promotions.
-3. **Connection pooling** — knex keeps a bounded pool (max 10 per API
-   instance), so adding API containers does not open unbounded connections.
-4. **Read replicas** — streaming replication lets browsing and search go to
-   replicas while writes stay on the primary. The application already separates
-   read paths from write paths cleanly, so this is a configuration change.
-5. **Partitioning / sharding** — deliberately *not* done. Orders partitioned by
-   date would help at a scale this project will not reach, and knowing when a
-   technique is unnecessary matters as much as knowing the technique.
+## 13. The system sends an email confirmation after successful order placement
 
-Postgres specifics I am actually relying on: generated columns, `tsvector`
-full-text search with GIN, `pg_trgm` similarity, real transactional DDL, and
-`jsonb` for flexible product attributes without schema churn.
+Sent by the queue worker once payment is confirmed, not at order placement —
+confirming an order that was never paid for would be wrong. It contains the
+reference, every line with prices, shipping, total, the delivery method with
+its ETA and a tracking link.
 
-## 14. Student can explain ACID properties and their importance in e-commerce database design
+In this environment mail goes to Mailpit: **http://localhost:8025**
 
-- **Atomicity** — all steps of an operation commit together or none do.
-  `resetPassword()` (`auth.service.js:176`) wraps "claim token" + "update
-  password" in `db.transaction`; `googleCallback()` wraps "create user" + "link
-  oauth account". In e-commerce the canonical case is checkout: order, order
-  items, stock decrement and cart clear must not half-apply, or you charge for
-  goods you never reserved.
-- **Consistency** — every committed state satisfies the declared rules. Here
-  that is enforced by the database itself, not application code:
-  `products_price_nonnegative` and `products_stock_nonnegative` CHECK
-  constraints, foreign keys on every relationship, and unique constraints on
-  emails and token hashes.
-- **Isolation** — concurrent transactions behave as if they ran one after
-  another. Postgres defaults to READ COMMITTED, which is not enough for
-  check-then-act on stock, so Project 2's checkout takes `SELECT … FOR UPDATE`
-  row locks on the products being purchased. Without it, two shoppers can both
-  read "1 in stock" and both succeed — the classic oversell.
-- **Durability** — once a commit is acknowledged, it survives a crash, because
-  Postgres writes the change to the write-ahead log before confirming. A power
-  cut immediately after "order placed" must not lose the order.
+## 14. The checkout handles and displays error messages for invalid inputs and failed transactions
 
-```bash
-# constraints refuse invalid data even when the application asks for it
-docker exec i-love-shopping-postgres-1 psql -U shop -d shop \
-  -c "UPDATE products SET price_cents = -1 WHERE slug = 'tesla-model-3-long-range';"
-# ERROR:  new row for relation "products" violates check constraint
-#         "products_price_nonnegative"
-```
-
-## 15. An Entity Relationship Diagram (ERD) is provided, clearly showing entities, attributes, relationships, primary keys, foreign keys, cardinality, and modality
-
-`docs/erd.md` — a Mermaid `erDiagram` covering all seven required elements:
-every entity with its attributes and types, `PK`/`FK`/`UK` markers, labelled
-relationships, and crow's-foot notation carrying both **cardinality** (one vs
-many) and **modality** (optional vs mandatory).
-
-Reading the notation, with concrete examples from the diagram:
-
-| Notation | Meaning | Example |
-|---|---|---|
-| `\|\|--o{` | exactly one → zero or many | a user holds zero or many refresh tokens |
-| `\|o--o{` | zero or one → zero or many | a cart *may* belong to a user (guest carts have none) |
-| `\|\|--\|{` | exactly one → one or many | an order always has at least one order item |
-| `\|o--o{` (self) | optional self-reference | a category may have a parent category |
-
-The optional side is the interesting part: `users |o--o{ carts` and
-`users |o--o{ orders` are what make **guest checkout** expressible in the
-schema, and `categories |o--o{ categories` is what makes the category tree
-arbitrarily deep. Project 2 and 3 entities are included and marked, so the
-diagram is the plan for the whole platform rather than only what exists today.
-
-## 16. Student can demonstrate and explain the search implementation including database design and basic text search functionality
-
-**Database design.** `search_vector` is a *generated* `tsvector` column, so
-Postgres maintains it — there is no trigger to forget and no way for the index
-to drift from the data:
-
-```sql
-setweight(to_tsvector('english', coalesce(name, '')), 'A') ||
-setweight(to_tsvector('english', coalesce(description, '')), 'B')
-```
-
-`to_tsvector` lowercases, strips stop words and stems ("charging" → "charg").
-`setweight` marks name terms `A` and description terms `B`, so a product whose
-*name* matches outranks one that merely mentions the word. A GIN index
-(`products_search_idx`) makes lookups fast.
-
-**Querying.** `websearch_to_tsquery` parses human syntax (quoted phrases, `or`,
-leading `-`), and `ts_rank` against the weighted vector produces the relevance
-ordering used by `sort=relevance`.
-
-**Suggestions** use a different tool on purpose: full-text search cannot match a
-misspelling, because the word never stems to the right lexeme. `pg_trgm` splits
-text into three-character shingles and scores set overlap, so "tesle" still
-finds Tesla. That is backed by its own GIN index (`products_name_trgm_idx`).
-
-```bash
-# relevance ranking — name matches beat description matches
-curl -sk 'https://localhost/api/v1/products?q=long+range+tesla' | head -c 200; echo
-
-# typo-tolerant suggestions
-curl -sk 'https://localhost/api/v1/products/suggest?q=tesle'
-
-# the raw ranking, straight from the database
-docker exec i-love-shopping-postgres-1 psql -U shop -d shop -c \
-"SELECT name, ts_rank(search_vector, websearch_to_tsquery('english','long range tesla')) AS rank
- FROM products WHERE search_vector @@ websearch_to_tsquery('english','long range tesla')
- ORDER BY rank DESC LIMIT 3;"
-```
-
-## 17. The product data model includes all required fields: id, name, description, price, stock quantity, category, brand, images, and weight/dimensions (in both metric and imperial units)
-
-All present in `migrations/002_catalog.js`. Two decisions worth defending:
-
-**Money as integer cents.** `price_cents integer`, never a float. Binary
-floating point cannot represent 0.1 exactly, so repeated float arithmetic
-drifts — unacceptable for money. Formatting to a currency string happens once,
-at serialization.
-
-**Imperial units as generated columns.** Metric is canonical; imperial is
-derived by Postgres and cannot be written to:
-
-```sql
-weight_lb GENERATED ALWAYS AS (round(weight_kg * 2.20462, 2)) STORED
-length_in GENERATED ALWAYS AS (round(length_mm / 25.4, 1)) STORED
-```
-
-Storing both as plain columns would let them disagree after any partial update.
-This way disagreement is structurally impossible — a much stronger guarantee
-than "we remember to update both".
-
-Also modelled: EV-specific attributes (`range_km`, `battery_kwh`,
-`motor_power_kw`, null for accessories), `jsonb attributes` for per-category
-extras without schema churn, and denormalized `rating_avg` / `rating_count` so
-listing pages need no aggregate join.
-
-```bash
-curl -sk https://localhost/api/v1/products/tesla-model-3-long-range | python3 -m json.tool | head -40
-```
-
-## 18. Products are organized into categories with an intuitive browsing structure
-
-`categories` is self-referencing (`parent_id`), giving a tree of arbitrary
-depth. Two roots today: *Electric Cars* (Sedans, SUVs & Crossovers, Hatchbacks
-& Compacts, Vans & Pickups) and *Charging & Accessories* (Home Chargers,
-Charging Cables, Tires & Wheels, Car Care & Gear).
-
-`GET /categories` returns the tree with **recursive product counts** — a parent
-reports its own products plus every descendant's, so the count a shopper sees
-matches what clicking actually shows. Filtering by a parent slug resolves to all
-descendant ids (`categoryIdsForSlug()`), so browsing *Electric Cars* returns
-cars from every sub-category rather than an empty page.
-
-```bash
-curl -sk https://localhost/api/v1/categories | python3 -m json.tool | head -30
-curl -sk 'https://localhost/api/v1/products?category=electric-cars&perPage=60' | head -c 120; echo
-```
-
-## 19. Faceted search is implemented, allowing users to refine results by product attributes
-
-Filters: full-text query, category (tree-aware), multiple brands, price range,
-minimum rating, minimum EV range, and in-stock only — all combinable.
-
-The part worth demonstrating is **how the facet counts are computed**. Each
-facet is counted with every filter applied *except its own dimension*
-(`applyFilters(..., { skip: ['brand'] })` in `catalog.service.js`). So after
-selecting Tesla you still see the other brands with their counts, and can widen
-the selection. Counting with the brand filter included would return only Tesla,
-making the facet a dead end — this is the standard behaviour of every real
-storefront, and it is a deliberate choice rather than an accident.
-
-```bash
-# brand facet still lists other brands even while filtering by Tesla
-curl -sk 'https://localhost/api/v1/products?brand=tesla' | python3 -c \
-'import json,sys; d=json.load(sys.stdin); print([(b["slug"],b["count"]) for b in d["facets"]["brands"]][:6])'
-
-# filters compose
-curl -sk 'https://localhost/api/v1/products?brand=tesla&minPrice=40000&maxPrice=50000&inStock=true' | head -c 120; echo
-```
-
-## 20. Product listing includes sorting options for relevance, price and rating
-
-`sort` accepts `relevance`, `price_asc`, `price_desc`, `rating` and `newest`,
-validated against an enum so an arbitrary string can never reach SQL. The
-default is context-aware: `relevance` when a search query is present (ranking is
-meaningless without one), otherwise `newest`. Rating sort breaks ties on
-`rating_count`, so a 5.0 from three reviews does not outrank a 4.9 from two
-hundred.
-
-```bash
-for s in relevance price_asc price_desc rating; do
-  echo "--- $s ---"
-  curl -sk "https://localhost/api/v1/products?q=charger&sort=$s&perPage=3" | python3 -c \
-  'import json,sys; d=json.load(sys.stdin); [print(" ", p["name"], p["price"]["formatted"], p["rating"]["average"]) for p in d["items"]]'
-done
-```
-
-## 21. Product images are stored with proper file handling and basic serving functionality
-
-Images are files on disk under `backend/uploads/products/`, referenced from the
-`product_images` table by path — never stored as blobs in the database, which
-would bloat backups and defeat HTTP caching. The table carries `alt_text`
-(needed for the WCAG requirement), `sort_order` and an `is_primary` flag so
-listing pages can fetch one thumbnail per product.
-
-Serving is layered: Express exposes `/uploads` via `express.static` with a
-7-day `max-age`, and nginx proxies that path with its own cache headers. The
-directory is a Docker **named volume**, so images survive container rebuilds —
-and the seed regenerates any missing file, so a fresh volume self-heals.
-
-```bash
-curl -skI https://localhost/uploads/products/tesla-model-3-long-range.svg | head -5
-# HTTP/2 200 / content-type: image/svg+xml / cache-control: public
-```
-
-## 22. Student can explain their approach to testing, integration of automated and usage of manual tests throughout the development process
-
-A pyramid, with each layer justified by what it can and cannot catch:
-
-- **Unit (35 tests)** — pure logic, no I/O, millisecond feedback: JWT handling,
-  TOTP windows, validation schemas, product serialization.
-- **API integration (28 tests)** — real HTTP through the actual Express app via
-  supertest, against a real Postgres and Redis. This is the only layer that can
-  prove things like refresh-token rotation or facet counts, because they are
-  properties of the whole request path plus the database, not of one function.
-- **Security (13 tests)** — hostile input as a first-class concern rather than
-  an afterthought.
-
-Tests run against a **separate `shop_test` database** created and migrated by
-`tests/globalSetup.js`, so they never touch development data and always start
-from a known seed.
-
-**Manual tests exist for what automation genuinely cannot reach**, which is the
-honest reason to have them — not laziness:
-
-| Manual test | Why it can't be automated |
+| Case | What the shopper sees |
 |---|---|
-| CAPTCHA | The whole point is proving a human is present |
-| Google OAuth | Requires consenting on Google's own domain |
-| 2FA enrollment | Needs a phone camera scanning a QR code |
-| Encryption at rest/in transit | Inspecting the browser padlock and raw DB columns |
+| Missing required field | *"Email is required"*, *"Street address is required"* … per field |
+| Invalid email | *"Please enter a valid email address"* |
+| Invalid phone | *"Enter a valid phone number"* |
+| Unsupported country | *"We do not ship to that country yet"* |
+| Stock changed mid-checkout | *"Only 2 × 'Wallbox Pulsar' left in stock. Please update your cart."* |
+| Card declined | see item 22 — a specific message per decline code |
+| Network / provider down | *"We could not reach the payment service. Check your connection and retry."* |
 
-These are documented as a checklist in `README.md` so they are repeatable rather
-than remembered.
+Errors are attached to the field that caused them via `aria-describedby` and
+announced with `role="alert"`; focus moves to the first invalid input. Server
+validation errors are mapped back onto the matching inputs rather than dumped
+as one banner.
 
-## 23. Automated tests exist for Unit, API integration, and Security tests covering authentication and product catalog functionality
+## 15. The payment system integrates with a sandbox API
 
-The Project 1 suite is 76 tests (the repository now totals 118, the rest
-covering Project 2 — see [ANSWERS-P2.md](ANSWERS-P2.md)):
+Stripe, using **PaymentIntents**. The server creates an intent for the order
+total and returns only its `client_secret`; the browser confirms it directly
+with Stripe.
+
+```bash
+curl -k -X POST https://localhost/api/v1/payments/intent/<orderId>
+# {"clientSecret":"pi_3UQM..._secret_...","publicKey":"pk_test_..."}
+```
+
+Reloading the payment page reuses the existing intent rather than creating a
+duplicate.
+
+## 16. The payment form uses the provider's secure form elements rather than handling card details directly
+
+`PaymentSection.jsx` renders Stripe's `<PaymentElement>`. The inputs are
+**Stripe-hosted iframes on Stripe's own origin** — our JavaScript cannot read
+them, and the card number never enters our DOM, our memory, our logs or our
+database. Stripe's Appearance API is configured so they match the surrounding
+form visually.
+
+This is the single most important decision in Project 2, and the reason is item
+19.
+
+## 17. Card validation checks number format, expiry date and CVV before submission
+
+Performed inside the Stripe element: Luhn checksum on the number, card-network
+detection, expiry in the future, CVC length correct for the network. Nothing is
+submitted until these pass, and `elements.submit()` surfaces any remaining
+issue before confirmation.
+
+Demonstrate with `4242 4242 4242 4241` — one digit altered, so it fails Luhn and
+the field rejects it without any network call.
+
+Doing this ourselves would mean touching the card number, which is exactly what
+item 16 forbids.
+
+## 18. Student can explain PCI DSS compliance and why sensitive payment data must not be stored on application servers
+
+**PCI DSS** is the card industry's security standard. Its scope covers any
+system that stores, processes or transmits cardholder data — and scope is the
+whole game, because the obligations are heavy: network segmentation, encryption
+key management, quarterly scans, annual audits, penetration testing.
+
+**How Voltmarket stays out of scope.** Card data goes from the shopper's
+browser straight to Stripe, inside iframes served from Stripe's domain. It
+never reaches this server. That qualifies as **SAQ-A**, the shortest
+self-assessment, instead of SAQ-D with its hundreds of controls.
+
+**Why storing card data is wrong even if encrypted.** Stored data is a target
+forever, and encryption only moves the problem to key management — whoever can
+decrypt for normal operation can decrypt after a breach. The industry answer is
+**tokenisation**: keep a reference that is worthless to a thief. Our `payments`
+table holds exactly that:
+
+```bash
+docker exec i-love-shopping-postgres-1 psql -U shop -d shop -c "\d payments"
+```
+
+There is no column capable of holding a PAN, expiry or CVC — a test asserts
+this (`tests/security/security.test.js`). Note also that **CVC may never be
+stored at all**, encrypted or not, under any circumstances.
+
+The breaches named in the brief make the point: Target and Heartland both lost
+card data they were holding or passing through. Data you never receive cannot
+be stolen from you.
+
+## 19. The order system updates status on callbacks from the payment provider
+
+Stripe calls `POST /api/v1/payments/webhook`. The handler verifies the
+signature with `STRIPE_WEBHOOK_SECRET` against the **raw request bytes** —
+which is why that route is mounted with `express.raw` before the JSON parser;
+parsing and re-serialising would change the bytes and break verification.
+
+State transitions:
+
+| Stripe event | Order becomes | Side effect |
+|---|---|---|
+| `payment_intent.succeeded` | `paid` | confirmation email, stock stays reserved |
+| `payment_intent.payment_failed` | `payment_failed` | **stock released**, failure email |
+| `payment_intent.canceled` | `payment_failed` | stock released |
+
+Transitions only apply from `pending_payment`, so a late or duplicate event
+cannot move a settled order backwards.
+
+### Webhooks can be missed, so the system also pulls
+
+A webhook is a *push*, and pushes get lost — the tunnel dies, the server is
+restarting, the endpoint is briefly unreachable. **This actually happened during
+development:** a real browser payment succeeded at Stripe while the
+`stripe listen` tunnel had died with an expired OAuth token. The customer was
+charged €1,011.99 and the order sat in `pending_payment`. Money had moved and
+the shop had no idea — the worst failure this system can produce.
+
+Relying on an inbound call alone is therefore not enough. Reading an order that
+still looks unpaid now also **pulls**: `reconcilePendingPayment()` asks Stripe
+what actually happened and, if Stripe disagrees with us, feeds the answer
+through *the same queue the webhook uses*, so there is exactly one code path
+that settles an order.
+
+```
+push:  Stripe ──► webhook ──────┐
+                                 ├──► RabbitMQ ──► worker ──► order settled
+pull:  order page ──► ask Stripe ┘
+```
+
+The idempotency key is the **PaymentIntent id**, not an event id:
+
+```js
+await claimEvent(`reconcile:${intent.id}`, 'queue', { orderId });
+```
+
+so a webhook that turns up late for a payment already reconciled collides on
+the primary key and is skipped. Whichever path arrives second does nothing, and
+an order can never be processed twice.
+
+It costs one API call, and only while an order is genuinely pending. It no-ops
+safely when Stripe is unconfigured.
+
+```bash
+# the log line proving a stuck order healed itself
+docker compose logs api | grep reconcile
+# [reconcile] order c8401601-… -> succeeded from Stripe
+docker compose logs worker | grep reconcile
+# [worker] order VM-RUZTFW -> paid (event reconcile_pi_3UQQBW…)
+```
+
+**Why this is the right design rather than a patch.** Stripe does retry a
+registered endpoint for days, so in production the push would usually recover
+on its own. But the shop should not depend on another company's retry schedule
+to know whether it has been paid. Reconciliation makes the correct state
+reachable at any moment from our side, and because both paths converge on the
+same consumer with the same guard, it adds a recovery route without adding a
+second way for things to go wrong.
+
+## 20. The payment system publishes status updates to a message queue
+
+The webhook publishes to the `shop.events` topic exchange in RabbitMQ with
+routing key `payment.succeeded` or `payment.failed`, then returns `200`. The
+worker — a separate container from the same image — consumes `payment.status`
+and does the real work.
+
+**Why not just update the order in the webhook?** Stripe retries anything that
+does not answer quickly. If a slow mail server held the response open, Stripe
+would redeliver and the order could be processed twice. The queue makes the
+webhook fast and the slow work independently retryable.
+
+Verify, watching three windows at once:
+
+```bash
+docker compose logs -f worker     # [worker] order VM-XXXX -> paid (event evt_...)
+# the `stripe listen` terminal shows: --> payment_intent.succeeded ... <-- [200]
+open http://localhost:15672       # RabbitMQ management, guest/guest
+```
+
+Reliability: publisher confirms on send, `prefetch(5)`, up to 3 attempts with
+increasing delay, then the message is dead-lettered to `shop.dead-letter`
+rather than looping forever. A malformed message is dead-lettered immediately —
+it can never succeed.
+
+**Idempotency** is mandatory here: Stripe delivers at-least-once and RabbitMQ
+redelivers on nack. Every side effect is guarded by inserting into
+`processed_events`; the insert *is* the lock, because a duplicate violates the
+primary key. The worker log shows this working:
+`[worker] duplicate event evt_..., skipping`.
+
+## 21. Emails are sent for both successful and failed payments
+
+Success: *"Order VM-XXXX confirmed ⚡"* with the full summary. Failure: *"Payment
+failed for order VM-XXXX"*, stating plainly that nothing was charged and the
+items have been returned to stock, with a link back to the cart.
+
+Both verified in Mailpit during the failure testing below.
+
+## 22. The payment system responds to specific failure scenarios
+
+All four required cases were run end to end against the Stripe sandbox.
+
+Use these at `https://localhost/checkout`. **Only the card number matters** —
+type **any future expiry** (e.g. `12 / 30`) and **any 3-digit CVC** (e.g.
+`123`); neither is validated against anything in test mode.
+
+| Test card | Stripe code | Order status | Stock | Message shown |
+|---|---|---|---|---|
+| `4000 0000 0000 9995` | `insufficient_funds` | `payment_failed` | released | *"Your card was declined for insufficient funds. Try another card."* |
+| `4242 4242 4242 4241` | — | no order charged | — | rejected by the field (fails Luhn) |
+| `4000 0000 0000 0069` | `expired_card` | `payment_failed` | released | *"That card has expired. Please use a different card."* |
+| `4000 0000 0000 0127` | `incorrect_cvc` | `payment_failed` | released | *"The security code (CVC) is incorrect."* |
+| `4000 0000 0000 0119` | `processing_error` | `payment_failed` | released | *"The payment provider had a problem processing your card. Please try again in a moment."* |
+
+Stripe's own messages are deliberately generic; `friendlyPaymentError()` in
+`PaymentSection.jsx` maps decline codes to guidance that tells the shopper what
+to do next.
+
+## 23. The inventory system prevents overselling during concurrent payments
+
+Stock is **reserved at order placement**, inside the checkout transaction:
+
+```sql
+SELECT * FROM products WHERE id IN (…) ORDER BY id FOR UPDATE;
+```
+
+Postgres defaults to READ COMMITTED, where two shoppers can both read "1 in
+stock" and both proceed — overselling is a race condition, not a validation
+failure. The row lock serialises them: the second transaction blocks until the
+first commits, then re-reads the real number and fails. Locks are taken in id
+order so two orders containing the same products in different sequences cannot
+deadlock. The decrement is additionally guarded by
+`WHERE stock_quantity >= quantity`, so no path can drive stock negative.
+
+Reserving at placement rather than at payment means a shopper who has reached
+the payment step cannot lose the item to someone faster; failures and
+cancellations give it back.
+
+Proven by `tests/integration/checkout.test.js` → *"two concurrent checkouts
+cannot oversell the last unit"*: one order is created, the other rejected, and
+stock lands at exactly 0.
+
+## 24. Order filtering allows users to sort by date and status
+
+```bash
+curl -k -H "Authorization: Bearer $TOKEN" \
+  'https://localhost/api/v1/orders?status=paid&from=2026-10-01&to=2026-10-31&page=1&perPage=10'
+```
+
+Status is validated against an enum, dates against `YYYY-MM-DD` with a semantic
+check that `from` is not after `to`. Results are newest-first and paginated.
+Order history is scoped to the authenticated user — a test confirms another
+account sees none of it and gets `403` on a direct reference.
+
+## 25. The order details page displays full order information including status updates
+
+`/orders/:reference` shows the status banner, decrypted delivery address,
+shipping method with a **calculated delivery window**, itemised totals, and a
+status timeline built from `order_events`.
+
+Guests have no account, so they authenticate with **reference + the email used**
+— two pieces of information only the buyer holds. The comparison uses the blind
+index, so the stored address is never decrypted merely to authorise a lookup.
+
+## 26. Order cancellation is allowed for unprocessed orders
+
+Permitted from `pending_payment` and `paid`; refused once `processing`,
+`shipped` or beyond, with *"An order that is already shipped cannot be
+cancelled. Request a refund instead."* Cancelling re-locks the order row,
+releases the stock and records a timeline entry — all in one transaction.
+Cancelling twice is refused.
+
+## 27. Stock levels update when orders are placed or cancelled
+
+| Event | Stock |
+|---|---|
+| Order placed | decremented (reserved) |
+| Payment failed | restored |
+| Order cancelled | restored |
+| Payment succeeded | stays decremented — the goods are sold |
+
+```bash
+# watch it move
+docker exec i-love-shopping-postgres-1 psql -U shop -d shop \
+  -c "SELECT name, stock_quantity FROM products WHERE slug='wallbox-pulsar-plus-11-kw';"
+```
+
+## 28. All sensitive data is encrypted at rest for order and payment data
+
+| Data | Protection |
+|---|---|
+| Shipping address | AES-256-GCM, snapshotted onto the order |
+| Buyer email | AES-256-GCM + HMAC blind index |
+| Passwords | bcrypt (hashed — never decryptable) |
+| Refresh / reset tokens | SHA-256 hashes |
+| Phone, TOTP secrets | AES-256-GCM |
+| Card data | **never received**, so nothing to encrypt |
+
+```bash
+docker exec i-love-shopping-postgres-1 psql -U shop -d shop \
+  -c "SELECT reference, email_enc, shipping_address_enc FROM orders LIMIT 2;"
+```
+
+Both columns are `iv.tag.ciphertext`, not readable text.
+
+**The blind index is worth explaining.** AES-GCM is randomised — the same email
+encrypts differently every time — which makes an encrypted column unsearchable.
+But guest order lookup needs an equality match on email. So `email_hash` stores
+an **HMAC-SHA256** of the normalised address: deterministic enough to look up,
+and because it is keyed rather than a bare hash, someone holding a stolen
+database cannot brute-force common email addresses without also holding the key.
+
+The address is **snapshotted** onto the order rather than referenced, so editing
+a saved address later cannot rewrite where a past order was shipped.
+
+## 29. Student can explain their approach to testing cart functionality, checkout flows and payment integration
+
+**118 tests: 55 unit, 48 integration, 15 security.** Each layer earns its place.
+
+**Cart — unit tests** (`tests/unit/cart.test.js`, 9 tests). Total calculation is
+a pure function, so it is tested without a database: quantity multiplication,
+mixed lines, shipping added to the total but never the subtotal, integer-cent
+exactness, and the stock flags.
+
+**Order summary — unit tests** (`tests/unit/order-summary.test.js`, 11 tests):
+subtotal + shipping = total, line totals summing to the subtotal, free shipping
+as zero rather than absent, snapshot prices surviving catalog changes, and
+reference format.
+
+**Checkout — integration tests** (`tests/integration/checkout.test.js`, 20
+tests) through real HTTP against real Postgres and Redis, because the guest and
+logged-in journeys are properties of the whole request path. Guest shopping,
+merge on login, order history privacy, cancellation with stock release, and the
+concurrency case — which *cannot* be unit-tested, since the thing under test is
+two transactions racing.
+
+**Payments — a deliberate split.** Automated tests cover everything up to the
+provider boundary: order state transitions, stock release on failure, and
+idempotency of redelivered messages. What is *not* automated is Stripe itself —
+I verified that manually against the sandbox with the Stripe CLI, running the
+success path and all four failure scenarios end to end. Mocking Stripe would
+test my mock; using the sandbox tests the integration.
+
+That split has a limit worth admitting. The missed-webhook bug (item 19) was
+invisible to the whole test suite, because every automated test drove the queue
+directly and so always had a working delivery path. It only appeared when I
+paid through the browser with the tunnel dead. The lesson I took from it is
+that tests prove the paths you thought of; the ones you did not think of are
+found by using the thing. For reconciliation I automated the properties that
+can be pinned without a live account — that it no-ops when Stripe is
+unconfigured, leaves orders without a pending payment untouched, and that its
+idempotency key collides as intended — and verified the actual recovery by
+hand against the sandbox.
+
+## 30. Automated tests exist for unit tests (cart, order calculations) and critical user flows (registration, checkout)
 
 | File | Layer | Tests | Covers |
 |---|---|---|---|
-| `tests/unit/jwt.test.js` | unit | 7 | structure, claims, expiry, wrong secret, tampering, revocation |
-| `tests/unit/validation.test.js` | unit | 17 | syntactic, semantic, whitelisting, both modules |
-| `tests/unit/product-model.test.js` | unit | 6 | required fields, money, metric+imperial, EV specs |
-| `tests/unit/totp.test.js` | unit | 5 | clock-skew window boundaries |
-| `tests/integration/auth.test.js` | integration | 13 | register, login, rotation, revocation, reset, 2FA |
-| `tests/integration/catalog.test.js` | integration | 15 | browsing, facets, sorting, search, DB constraints |
-| `tests/security/security.test.js` | security | 13 | SQLi, XSS, malformed input, headers, rate limiting |
-
-(35 unit + 28 integration + 13 security = 76. Several files use `test.each`, so
-one block in the source produces multiple test cases.)
+| `tests/unit/cart.test.js` | unit | 9 | item management, totals, stock flags |
+| `tests/unit/order-summary.test.js` | unit | 11 | pricing, shipping, snapshots, references |
+| `tests/integration/auth.test.js` | flow | 13 | **registration**, login, rotation, 2FA |
+| `tests/integration/checkout.test.js` | flow | 20 | **checkout** guest + logged-in, concurrency, reconciliation |
+| `tests/security/security.test.js` | security | 15 | injection, rate limiting, **encryption at rest** |
 
 ```bash
-docker compose up -d postgres redis
-cd backend && npm test
+cd backend && npm test          # all 118
+npx jest tests/integration/checkout.test.js --verbose
 ```
 
-## 24. Ask the student to explain and demonstrate the functionality of the tests
+## 31. Ask the student to explain and demonstrate the tests
 
-Run selectively and talk through what each layer proves:
+Three worth walking through:
+
+- **"two concurrent checkouts cannot oversell the last unit"** — sets stock to
+  1, fires two checkouts with `Promise.all`, asserts exactly one `201`, one
+  `409`, and final stock of 0. This is the headline test.
+- **"a guest cart merges into the account on login"** — proves quantities are
+  summed rather than overwritten.
+- **"status transitions are idempotent"** — calls `markPaid` twice then
+  `markPaymentFailed`, and asserts the order stays `paid` with no double stock
+  release. This is what makes at-least-once delivery safe.
+
+## 32. The project is containerised; host prerequisites are Docker and the payment simulation CLI
+
+`docker compose up --build` starts seven services: postgres, redis, rabbitmq,
+mailpit, api, worker (same image, different command) and nginx with TLS. The
+API migrates and seeds itself on boot. The only other host requirement is the
+Stripe CLI, which the brief explicitly permits.
+
+Tests need no Node on the host either:
 
 ```bash
-cd backend
-npm run test:unit         # fast, no I/O
-npm run test:integration  # real HTTP + real Postgres/Redis
-npm run test:security     # hostile input
-npx jest --verbose tests/integration/auth.test.js   # read the test names aloud
+docker run --rm -v "$PWD/backend":/app -w /app --network i-love-shopping_default \
+  -e NODE_ENV=test \
+  -e ADMIN_DATABASE_URL=postgres://shop:shop_secret@postgres:5432/shop \
+  -e TEST_DATABASE_URL=postgres://shop:shop_secret@postgres:5432/shop_test \
+  -e REDIS_URL=redis://redis:6379 \
+  node:24-alpine sh -c "npm ci && npx jest --runInBand"
 ```
-
-Three worth walking through specifically:
-
-- **`jwt.test.js` → "rejects a tampered payload"** decodes a real token, flips
-  `role` to `admin`, re-encodes it and asserts verification fails. This is the
-  signature doing its job, demonstrated rather than asserted.
-- **`auth.test.js` → "refresh rotates the token; the old one is single-use;
-  reuse revokes the family"** is the single most important test in the suite:
-  it captures the rotating cookies and proves all three properties in sequence.
-- **`security.test.js`** feeds `'; DROP TABLE products; --` into search and then
-  asserts the products table still has rows. Two layers make it safe: zod
-  whitelisting, and knex parameterization, which sends the payload as a *value*
-  so it can never be parsed as SQL.
-
-One design note reviewers tend to probe: tests set `NODE_ENV=test`, which makes
-the CAPTCHA and mailer short-circuit deterministically (grep for `env === 'test'`
-to see exactly where). Without those seams, the suite would depend on Google
-being reachable.
-
-## 25. Student can explain their chosen architectural approach and justify how it aligns with their platform's scalability requirements
-
-A **modular monolith**: one deployable Express application, internally divided
-into modules under `backend/src/modules/` (`auth`, `catalog`, and in later
-projects `cart`, `orders`, `payments`, `reviews`, `admin`), each with its own
-routes, controller, service and validation, and no reaching into another
-module's internals.
-
-**Why not microservices.** They would buy independent deployability at the cost
-of network failure modes between every call, distributed transactions where a
-single database transaction does today, and per-service operational overhead —
-for a platform serving one shop. That is complexity without a matching problem.
-
-**How the scalability requirement is actually met.** The API is **stateless** —
-all state lives in Postgres (durable), Redis (cache, rate-limit buckets, JWT
-denylist) or the client's own JWT. So scaling out is running more API
-containers behind nginx; no sticky sessions, no shared filesystem for session
-data. Slow work is already decoupled: RabbitMQ plus a separate `worker` process
-built from the same image handles order and email processing, which is exactly
-the seam along which a service would be extracted first if it ever needed to be.
-
-The design follows the Twelve-Factor App where it matters: config from the
-environment (III), backing services as attached resources (IV), stateless
-processes (VI), logs to stdout (XI), and dev/prod parity through the same Docker
-images (X).
-
-## 26. Project application is containerized using Docker; Docker is the only host prerequisite
-
-`docker compose up --build` starts seven services:
-
-| Service | Role |
-|---|---|
-| `postgres` | system of record, healthchecked so dependents wait for readiness |
-| `redis` | cache, token buckets, JWT denylist |
-| `rabbitmq` | message queue + management UI on `:15672` |
-| `mailpit` | SMTP sink with a web inbox on `:8025` |
-| `api` | Express API; runs `migrate && seed` on boot, so a clean clone self-provisions |
-| `worker` | same image, different command — queue consumers |
-| `web` | multi-stage build: Node compiles the SPA, nginx serves it and terminates TLS |
-
-No Node, Postgres, Redis or OpenSSL needed on the host. The TLS certificate is
-generated during the image build, and every environment variable has a working
-default in `docker-compose.yml`, so the stack runs with no `.env` at all. Named
-volumes (`pgdata`, `uploads`) keep data across rebuilds.
-
-For Project 2, payment testing additionally needs the Stripe CLI, which the
-brief explicitly permits.
 
 ---
 
-## Extra credit items
+## Extra credit
 
-**Authentication quality.** Refresh-token family theft detection; hashed token
-storage; AES-256-GCM encryption of PII at rest (phone numbers, TOTP secrets);
-bcrypt passwords; identical error responses for wrong-password and unknown-email
-to prevent account enumeration; token-bucket rate limiting that is strictest on
-auth endpoints; and admin 2FA enforced at the authorization layer.
+**Cart quality.** Server-side persistence so carts survive device changes;
+merge-on-login that sums quantities; `SameSite=Lax` chosen specifically so the
+cart survives the return trip from Stripe; recommendations drawn from the
+categories already in the basket; stock problems flagged rather than silently
+corrected.
 
-**Database quality.** Generated columns making imperial units and the search
-vector impossible to desynchronize; CHECK constraints and foreign keys enforcing
-invariants in the database rather than in application code; money as integer
-cents; an ERD covering all three projects; `jsonb` for extensibility without
-migrations.
+**Checkout and error handling.** One page, no navigation mid-flow; summary stays
+editable; prefill for known shoppers; validation mirrored client and server with
+the server as authority; decline codes translated into actionable guidance;
+graceful degradation when Stripe is unconfigured — the order is still placed and
+the stock reserved.
 
-**Catalog quality.** Tree-aware category filtering with recursive counts;
-facet counts that exclude their own dimension; weighted full-text relevance
-alongside trigram typo tolerance; Redis read-through caching that fails open.
+**Payment security.** Card data never reaches the server; signature verification
+over raw bytes; no column capable of holding card data, asserted by test;
+reused intents instead of duplicates on reload.
 
-**Docker.** Single-command startup; self-provisioning migrations and seeds;
-healthcheck-gated startup ordering; one image serving both the API and the
-worker; multi-stage frontend build.
+**Order management and queue.** Durable topic exchange with publisher confirms,
+bounded retries and a dead-letter queue; idempotency via `processed_events`
+covering both Stripe and RabbitMQ at-least-once delivery; a customer-visible
+status timeline; partial and full refunds with over-refund protection.
+
+**Resilience.** Payment state is recoverable from both directions: the webhook
+pushes, and reading a pending order pulls from Stripe. Both converge on one
+consumer guarded by one idempotency key, so a missed webhook cannot leave a
+paid order looking unpaid, and a late webhook cannot double-process a
+reconciled one.
