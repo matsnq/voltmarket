@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { Package, Star, Check, Truck } from 'lucide-react';
+import { Package, Check, Truck } from 'lucide-react';
 import { api } from '../lib/api';
 import { useCart } from '../hooks/useCart';
 import ProductCard from '../components/ProductCard';
+import ProductReviews from '../components/reviews/ProductReviews';
+import Stars from '../components/reviews/Stars';
 
 function Spec({ label, value }) {
   if (value === null || value === undefined) return null;
@@ -24,6 +26,7 @@ export default function ProductDetail() {
   const [loading, setLoading] = useState(true);
   const [quantity, setQuantity] = useState(1);
   const [state, setState] = useState('idle');
+  const [rating, setRating] = useState({ average: 0, count: 0 });
   const [message, setMessage] = useState('');
 
   useEffect(() => {
@@ -32,7 +35,10 @@ export default function ProductDetail() {
     setProduct(null);
     api(`/products/${slug}`)
       .then((d) => {
-        if (!cancelled) setProduct(d.product);
+        if (!cancelled) {
+          setProduct(d.product);
+          setRating(d.product.rating);
+        }
       })
       .catch((err) => {
         if (!cancelled) setError(err.message);
@@ -135,21 +141,10 @@ export default function ProductDetail() {
           <h1 className="mt-1 text-2xl font-bold text-gray-900">{product.name}</h1>
 
           <div className="mt-2 flex items-center gap-2">
-            <span className="flex" aria-hidden="true">
-              {[1, 2, 3, 4, 5].map((n) => (
-                <Star
-                  key={n}
-                  className={`h-4 w-4 ${
-                    n <= Math.round(product.rating.average)
-                      ? 'fill-amber-400 text-amber-400'
-                      : 'text-gray-300'
-                  }`}
-                />
-              ))}
-            </span>
-            <span className="text-sm text-gray-600">
-              {product.rating.average.toFixed(1)} from {product.rating.count} reviews
-            </span>
+            <Stars value={rating.average} size="md" count={rating.count} />
+            <a href="#reviews-heading" className="text-sm text-brand-700 hover:underline">
+              {rating.count} {rating.count === 1 ? 'review' : 'reviews'}
+            </a>
           </div>
 
           <p className="mt-4 text-3xl font-bold text-gray-900">{product.price.formatted}</p>
@@ -256,6 +251,8 @@ export default function ProductDetail() {
           never disagree.
         </p>
       </section>
+
+      <ProductReviews slug={slug} onRatingChange={setRating} />
 
       {product.related && product.related.length > 0 && (
         <section aria-labelledby="related-heading" className="mt-12">
