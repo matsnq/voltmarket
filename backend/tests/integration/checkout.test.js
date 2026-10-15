@@ -295,7 +295,12 @@ describe('inventory integrity', () => {
     expect(after.stock_quantity).toBe(0); // never negative
   });
 
-  test('a payment failure returns the reserved stock', async () => {
+  // This test used to assert that a decline released the stock immediately.
+  // That was wrong: Stripe keeps the PaymentIntent usable, so the shopper can
+  // try another card — and releasing early let someone else buy the item out
+  // from under them, leaving a charged customer with a failed order. The
+  // reservation is now held until it expires.
+  test('a payment failure keeps the stock reserved, then expiry releases it', async () => {
     const product = await pickProduct();
     const added = await request(app)
       .post('/api/v1/cart/items')
@@ -316,10 +321,20 @@ describe('inventory integrity', () => {
     // What the queue worker does when Stripe reports a decline.
     await orders.markPaymentFailed(placed.body.order.id, { reason: 'Card declined' });
 
-    const restored = await db('products').where({ id: product.id }).first();
-    expect(restored.stock_quantity).toBe(product.stock_quantity);
+    const afterDecline = await db('products').where({ id: product.id }).first();
+    expect(afterDecline.stock_quantity).toBe(product.stock_quantity - 2); // still held
     const row = await db('orders').where({ id: placed.body.order.id }).first();
     expect(row.status).toBe('payment_failed');
+    expect(row.reservation_expires_at).toBeTruthy();
+
+    // Only when the shopper walks away does the stock come back.
+    await db('orders')
+      .where({ id: placed.body.order.id })
+      .update({ reservation_expires_at: new Date(Date.now() - 1000) });
+    await orders.expireStaleReservations();
+
+    const restored = await db('products').where({ id: product.id }).first();
+    expect(restored.stock_quantity).toBe(product.stock_quantity);
   });
 
   test('status transitions are idempotent, so a redelivered message is harmless', async () => {

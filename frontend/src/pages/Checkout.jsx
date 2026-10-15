@@ -67,17 +67,48 @@ export default function Checkout() {
       .catch(() => setGlobalError('Could not load shipping options. Please reload the page.'));
   }, []);
 
-  // Prefill everything we already know about a signed-in shopper.
+  const [savedAddresses, setSavedAddresses] = useState([]);
+
+  // Prefill everything we already know about a signed-in shopper: profile
+  // first, then their saved delivery address if they have one.
   useEffect(() => {
-    if (user) {
-      setEmail((prev) => prev || user.email);
-      setAddress((prev) => ({
-        ...prev,
-        recipient: prev.recipient || user.name || '',
-        phone: prev.phone || user.phone || '',
-      }));
-    }
+    if (!user) return;
+    setEmail((prev) => prev || user.email);
+    setAddress((prev) => ({
+      ...prev,
+      recipient: prev.recipient || user.name || '',
+      phone: prev.phone || user.phone || '',
+    }));
+
+    api('/addresses')
+      .then((d) => {
+        setSavedAddresses(d.addresses);
+        const preferred = d.addresses.find((a) => a.isDefault) || d.addresses[0];
+        if (!preferred) return;
+        // Only fill blanks — never overwrite something already typed.
+        setAddress((prev) => ({
+          recipient: prev.recipient || preferred.recipient || '',
+          street: prev.street || preferred.street || '',
+          city: prev.city || preferred.city || '',
+          postalCode: prev.postalCode || preferred.postalCode || '',
+          country: preferred.country || prev.country,
+          phone: prev.phone || preferred.phone || '',
+        }));
+      })
+      .catch(() => {});
   }, [user]);
+
+  function useSavedAddress(saved) {
+    setAddress({
+      recipient: saved.recipient || '',
+      street: saved.street || '',
+      city: saved.city || '',
+      postalCode: saved.postalCode || '',
+      country: saved.country,
+      phone: saved.phone || '',
+    });
+    setErrors({});
+  }
 
   const selectedMethod = useMemo(
     () => methods.find((m) => m.id === methodId) || null,
@@ -279,6 +310,26 @@ export default function Checkout() {
                   <MapPin className="h-4 w-4 text-brand-600" aria-hidden="true" />
                   Delivery address
                 </h2>
+
+                {savedAddresses.length > 1 && (
+                  <div className="mb-4">
+                    <p className="mb-2 text-sm text-gray-600">Use a saved address:</p>
+                    <ul className="flex flex-wrap gap-2">
+                      {savedAddresses.map((a) => (
+                        <li key={a.id}>
+                          <button
+                            type="button"
+                            onClick={() => useSavedAddress(a)}
+                            className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-700 transition hover:border-brand-400 hover:bg-brand-50"
+                          >
+                            {a.label || `${a.street}, ${a.city}`}
+                            {a.isDefault && <span className="ml-1 text-brand-600">(default)</span>}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 <FormField
                   label="Recipient name"
                   value={address.recipient}

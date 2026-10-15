@@ -26,6 +26,7 @@ async function sendOrderEmail(order, succeeded) {
 
   if (succeeded) {
     await sendMail({
+      required: true, // a lost confirmation must retry, not vanish
       to: order.email,
       subject: `Order ${order.reference} confirmed ⚡`,
       html: layout(
@@ -42,6 +43,7 @@ async function sendOrderEmail(order, succeeded) {
     });
   } else {
     await sendMail({
+      required: true,
       to: order.email,
       subject: `Payment failed for order ${order.reference}`,
       html: layout(
@@ -59,28 +61,48 @@ async function sendOrderEmail(order, succeeded) {
 // between the work and the ack, so the same message can legitimately arrive
 // twice. The claim is the guard.
 async function handlePaymentStatus(message) {
-  const fresh = await payments.claimEvent(`queue:${message.eventId}`, 'queue', {
-    orderId: message.orderId,
-  });
+  const key = `queue:${message.eventId}`;
+
+  // The claim is a lock against concurrent redelivery, not a record that the
+  // work succeeded. If anything below throws, the claim is released so the
+  // retry can genuinely re-run — marking it handled up front would turn a
+  // transient failure into a permanently stuck order.
+  const fresh = await payments.claimEvent(key, 'queue', { orderId: message.orderId });
   if (!fresh) {
     console.log(`[worker] duplicate event ${message.eventId}, skipping`);
     return;
   }
 
-  if (message.succeeded) {
-    await orders.markPaid(message.orderId, { note: 'Payment confirmed by Stripe' });
-  } else {
-    // Releases the reserved stock as part of the same transaction.
-    await orders.markPaymentFailed(message.orderId, {
-      reason: message.failureMessage || 'Payment was declined',
-    });
-  }
+  try {
+    if (message.succeeded) {
+      const { outcome } = await orders.markPaid(message.orderId, {
+        note: 'Payment confirmed by Stripe',
+      });
 
-  const order = await orders.getOrderById(message.orderId);
-  await sendOrderEmail(order, message.succeeded);
-  console.log(
-    `[worker] order ${order.reference} -> ${order.status} (event ${message.eventId})`
-  );
+      // Paid, but the stock had already gone back to the catalogue — the
+      // order cannot be fulfilled, so the money goes back rather than sitting
+      // on an order nobody can ship.
+      if (outcome === 'unfulfillable') {
+        console.error(`[worker] order ${message.orderId} paid but unfulfillable — refunding`);
+        await payments.refundOrder(message.orderId, {
+          reason: 'Paid after the order was cancelled; stock no longer held',
+        });
+      }
+    } else {
+      await orders.markPaymentFailed(message.orderId, {
+        reason: message.failureMessage || 'Payment was declined',
+      });
+    }
+
+    const order = await orders.getOrderById(message.orderId);
+    await sendOrderEmail(order, message.succeeded);
+    console.log(
+      `[worker] order ${order.reference} -> ${order.status} (event ${message.eventId})`
+    );
+  } catch (err) {
+    await payments.releaseEvent(key);
+    throw err; // the caller retries, then dead-letters
+  }
 }
 
 async function start() {
@@ -121,6 +143,22 @@ async function start() {
   });
 
   console.log('[worker] consuming', queue.QUEUES.paymentStatus);
+
+  // Release stock held by orders nobody came back to pay for. Runs here
+  // rather than in the API so it happens once, not once per API instance.
+  const sweep = async () => {
+    try {
+      const expired = await orders.expireStaleReservations();
+      if (expired.length) {
+        console.log(`[worker] reservation expired, stock released: ${expired.join(', ')}`);
+      }
+    } catch (err) {
+      console.error('[worker] reservation sweep failed:', err.message);
+    }
+  };
+  await sweep();
+  setInterval(sweep, 60000).unref();
+  console.log('[worker] reservation sweeper running every 60s');
 }
 
 async function connectWithRetry(attempt = 1) {

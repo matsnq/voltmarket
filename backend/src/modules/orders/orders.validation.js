@@ -81,12 +81,20 @@ const fulfilmentSchema = z
   })
   .strict();
 
+const refundSchema = z
+  .object({
+    amountCents: z.coerce.number().int().positive().max(100000000).optional(),
+    reason: z.string().trim().max(500).optional(),
+  })
+  .strict();
+
 const lookupSchema = z
   .object({ email: z.string().trim().toLowerCase().email().max(255).optional() })
   .strict();
 
 module.exports = {
   checkoutSchema,
+  refundSchema,
   fulfilmentSchema,
   listOrdersSchema,
   cancelSchema,

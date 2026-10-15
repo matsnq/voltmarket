@@ -7,6 +7,7 @@ const { authorize } = require('../../middleware/authorize');
 const {
   checkoutSchema,
   fulfilmentSchema,
+  refundSchema,
   listOrdersSchema,
   cancelSchema,
   lookupSchema,
@@ -89,12 +90,34 @@ router.post('/orders/:identifier/cancel', authenticate, validate(cancelSchema), 
       userId: req.user.id,
       staff,
     });
-    await service.cancelOrder(existing.id, {
+    const { refundRequired } = await service.cancelOrder(existing.id, {
       userId: req.user.id,
       reason: req.validated.body.reason,
       byAdmin: staff,
     });
-    res.json({ order: await service.getOrderById(existing.id) });
+
+    // Cancelling a paid order returns the money as well as the stock.
+    let refund = null;
+    if (refundRequired) {
+      try {
+        refund = await paymentsService.refundOrder(existing.id, {
+          reason: req.validated.body.reason || 'Order cancelled by customer',
+          createdBy: req.user.id,
+        });
+      } catch (err) {
+        // The cancellation itself stands; surface the refund problem rather
+        // than pretending the money came back.
+        return res.status(502).json({
+          order: await service.getOrderById(existing.id),
+          error: `Order cancelled, but the refund could not be completed: ${err.message}. Contact support.`,
+        });
+      }
+    }
+
+    res.json({
+      order: await service.getOrderById(existing.id),
+      refund: refund ? { amountCents: refund.amount_cents, status: refund.status } : null,
+    });
   } catch (err) {
     next(err);
   }
@@ -124,5 +147,61 @@ router.patch(
     }
   }
 );
+
+// Staff issue a refund directly — full by default, partial with amountCents.
+router.post(
+  '/orders/:identifier/refund',
+  authenticate,
+  authorize('admin', 'support'),
+  validate(refundSchema),
+  async (req, res, next) => {
+    try {
+      const existing = await service.getOrderForViewer(req.params.identifier, {
+        userId: req.user.id,
+        staff: true,
+      });
+      const refund = await paymentsService.refundOrder(existing.id, {
+        amountCents: req.validated.body.amountCents,
+        reason: req.validated.body.reason,
+        createdBy: req.user.id,
+      });
+      res.status(201).json({
+        refund: {
+          id: refund.id,
+          amountCents: refund.amount_cents,
+          status: refund.status,
+          providerRefundId: refund.provider_refund_id,
+        },
+        order: await service.getOrderById(existing.id),
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Refund history for an order.
+router.get('/orders/:identifier/refunds', authenticate, async (req, res, next) => {
+  try {
+    const staff = await isStaff(req.user);
+    const order = await service.getOrderForViewer(req.params.identifier, {
+      userId: req.user.id,
+      staff,
+    });
+    const db = require('../../lib/db');
+    const rows = await db('refunds').where({ order_id: order.id }).orderBy('created_at');
+    res.json({
+      refunds: rows.map((r) => ({
+        id: r.id,
+        amountCents: r.amount_cents,
+        status: r.status,
+        reason: r.reason,
+        createdAt: r.created_at,
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 module.exports = router;

@@ -448,8 +448,16 @@ deadlock. The decrement is additionally guarded by
 `WHERE stock_quantity >= quantity`, so no path can drive stock negative.
 
 Reserving at placement rather than at payment means a shopper who has reached
-the payment step cannot lose the item to someone faster; failures and
-cancellations give it back.
+the payment step cannot lose the item to someone faster.
+
+**A decline does not release the reservation.** Stripe keeps a PaymentIntent
+usable after a failed card, so the shopper can try another one — and releasing
+the stock at that moment would let somebody else buy the item out from under
+them, producing a charged customer with an order marked failed. The goods stay
+held for `RESERVATION_MINUTES` (60), and a sweeper in the worker releases
+anything nobody came back for, cancelling the order with *"Payment not
+completed in time"*. That is what stops abandoned checkouts consuming the
+catalogue.
 
 Proven by `tests/integration/checkout.test.js` → *"two concurrent checkouts
 cannot oversell the last unit"*: one order is created, the other rejected, and
@@ -513,19 +521,38 @@ pending_payment -> paid -> processing -> shipped -> delivered
 
 ## 26. Order cancellation is allowed for unprocessed orders
 
-Permitted from `pending_payment` and `paid`; refused once `processing`,
-`shipped` or beyond, with *"An order that is already shipped cannot be
-cancelled. Request a refund instead."* Cancelling re-locks the order row,
-releases the stock and records a timeline entry — all in one transaction.
+Permitted from `pending_payment`, `payment_failed` and `paid`; refused once
+`processing`, `shipped` or beyond, with *"An order that is already shipped
+cannot be cancelled. Request a refund instead."* Cancelling re-locks the order
+row, releases the stock and records a timeline entry — all in one transaction.
 Cancelling twice is refused.
+
+**Cancelling a paid order also returns the money.** The transaction reports
+that a refund is owed, and the route then issues it through Stripe — outside
+the transaction, because a network call must never be held inside a database
+lock. If the refund itself fails the cancellation still stands and the response
+says so plainly, rather than implying the money came back:
+
+```bash
+curl -k -X POST https://localhost/api/v1/orders/VM-XXXXXX/cancel \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"reason":"Changed my mind"}'
+# {"order":{...,"status":"refunded"},"refund":{"amountCents":76899,"status":"succeeded"}}
+
+# Staff can also refund directly, in full or in part:
+curl -k -X POST https://localhost/api/v1/orders/VM-XXXXXX/refund \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"amountCents":2000,"reason":"Damaged packaging"}'
+```
 
 ## 27. Stock levels update when orders are placed or cancelled
 
 | Event | Stock |
 |---|---|
-| Order placed | decremented (reserved) |
-| Payment failed | restored |
-| Order cancelled | restored |
+| Order placed | decremented, with a 60-minute reservation |
+| Payment failed | **stays reserved** — the shopper may try another card |
+| Reservation expires | restored, order cancelled automatically |
+| Order cancelled | restored (and the money refunded if it was paid) |
 | Payment succeeded | stays decremented — the goods are sold |
 
 ```bash
@@ -564,7 +591,7 @@ a saved address later cannot rewrite where a past order was shipped.
 
 ## 29. Student can explain their approach to testing cart functionality, checkout flows and payment integration
 
-**124 tests: 55 unit, 54 integration, 15 security.** Each layer earns its place.
+**140 tests: 55 unit, 70 integration, 15 security.** Each layer earns its place.
 
 **Cart — unit tests** (`tests/unit/cart.test.js`, 9 tests). Total calculation is
 a pure function, so it is tested without a database: quantity multiplication,
@@ -612,7 +639,7 @@ hand against the sandbox.
 | `tests/security/security.test.js` | security | 15 | injection, rate limiting, **encryption at rest** |
 
 ```bash
-cd backend && npm test          # all 124
+cd backend && npm test          # all 140
 npx jest tests/integration/checkout.test.js --verbose
 ```
 
@@ -666,6 +693,11 @@ the stock reserved.
 **Payment security.** Card data never reaches the server; signature verification
 over raw bytes; no column capable of holding card data, asserted by test;
 reused intents instead of duplicates on reload.
+
+**Refunds.** `POST /orders/:reference/refund` for staff (full, or partial with
+`amountCents`), `GET /orders/:reference/refunds` for the history, and
+cancelling an order that was already paid returns the money automatically
+rather than only the stock. Over-refunding is rejected.
 
 **Order management and queue.** Durable topic exchange with publisher confirms,
 bounded retries and a dead-letter queue; idempotency via `processed_events`

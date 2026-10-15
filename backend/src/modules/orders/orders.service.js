@@ -4,10 +4,16 @@ const { money } = require('../../lib/money');
 const { encryptField, decryptField, blindIndex } = require('../../lib/crypto');
 const { HttpError } = require('../../middleware/errorHandler');
 const cartService = require('../cart/cart.service');
+const addressesService = require('../users/addresses.service');
 
 // Statuses a customer may still cancel from. Once the warehouse has started
 // processing, cancellation becomes a refund instead.
-const CANCELLABLE = ['pending_payment', 'paid'];
+const CANCELLABLE = ['pending_payment', 'payment_failed', 'paid'];
+
+// A placed order holds its stock this long. Long enough to finish paying —
+// including retrying a declined card — short enough that abandoned baskets
+// do not quietly consume the catalogue.
+const RESERVATION_MINUTES = 60;
 
 function generateReference() {
   // Crockford-ish alphabet: no I/O/0/1, so references survive being read
@@ -99,6 +105,7 @@ async function createOrder(req, res, payload) {
         // The address is encrypted and snapshotted: later edits to a saved
         // address must not rewrite where a past order went.
         shipping_address_enc: encryptField(JSON.stringify(payload.shippingAddress)),
+        reservation_expires_at: new Date(Date.now() + RESERVATION_MINUTES * 60000),
       })
       .returning('*');
 
@@ -132,6 +139,16 @@ async function createOrder(req, res, payload) {
     return created;
   });
 
+  // Remember where a signed-in shopper sent this order, so the next checkout
+  // can prefill it. Best-effort: never fail a placed order over a convenience.
+  if (userId) {
+    try {
+      await addressesService.rememberFromCheckout(userId, payload.shippingAddress);
+    } catch (err) {
+      console.error('[address] could not save for reuse:', err.message);
+    }
+  }
+
   return getOrderById(order.id);
 }
 
@@ -151,18 +168,46 @@ async function releaseStock(trx, orderId) {
 
 // ---------- Status transitions (called by the queue worker) ----------
 
+// Statuses a successful payment may arrive into. `payment_failed` is here
+// because Stripe keeps a PaymentIntent usable after a decline: the shopper can
+// try a second card on the same order, and that success must be honoured.
+const PAYABLE = ['pending_payment', 'payment_failed'];
+
 async function markPaid(orderId, { note } = {}) {
   return db.transaction(async (trx) => {
     const order = await trx('orders').where({ id: orderId }).forUpdate().first();
     if (!order) throw new HttpError(404, 'Order not found');
-    if (order.status !== 'pending_payment') return order; // already handled
+
+    if (order.status === 'paid') return { order, outcome: 'already_paid' };
+
+    // Money arrived for an order whose stock we no longer hold. We cannot
+    // fulfil it, so the caller must refund rather than silently keep the cash.
+    if (!PAYABLE.includes(order.status)) {
+      await recordEvent(
+        trx,
+        orderId,
+        order.status,
+        `Payment succeeded after the order was ${order.status.replace('_', ' ')} — refund required`
+      );
+      return { order, outcome: 'unfulfillable' };
+    }
 
     const [updated] = await trx('orders')
       .where({ id: orderId })
-      .update({ status: 'paid', paid_at: trx.fn.now(), updated_at: trx.fn.now() })
+      .update({
+        status: 'paid',
+        paid_at: trx.fn.now(),
+        reservation_expires_at: null, // paid stock is no longer a reservation
+        updated_at: trx.fn.now(),
+      })
       .returning('*');
-    await recordEvent(trx, orderId, 'paid', note || 'Payment received');
-    return updated;
+    await recordEvent(
+      trx,
+      orderId,
+      'paid',
+      note || (order.status === 'payment_failed' ? 'Payment received on retry' : 'Payment received')
+    );
+    return { order: updated, outcome: 'paid' };
   });
 }
 
@@ -170,16 +215,63 @@ async function markPaymentFailed(orderId, { reason } = {}) {
   return db.transaction(async (trx) => {
     const order = await trx('orders').where({ id: orderId }).forUpdate().first();
     if (!order) throw new HttpError(404, 'Order not found');
-    if (order.status !== 'pending_payment') return order;
+    if (!PAYABLE.includes(order.status)) return { order, outcome: 'ignored' };
 
-    await releaseStock(trx, orderId); // the reservation is given back
+    // The stock stays reserved. Stripe allows another card against the same
+    // PaymentIntent, and releasing here would let someone else buy the item
+    // out from under a shopper who is still at the payment step. The
+    // reservation expiry (swept by the worker) is what eventually frees it.
     const [updated] = await trx('orders')
       .where({ id: orderId })
-      .update({ status: 'payment_failed', updated_at: trx.fn.now() })
+      .update({
+        status: 'payment_failed',
+        reservation_expires_at: new Date(Date.now() + RESERVATION_MINUTES * 60000),
+        updated_at: trx.fn.now(),
+      })
       .returning('*');
-    await recordEvent(trx, orderId, 'payment_failed', reason || 'Payment failed');
-    return updated;
+    await recordEvent(
+      trx,
+      orderId,
+      'payment_failed',
+      `${reason || 'Payment failed'} — items stay reserved for ${RESERVATION_MINUTES} minutes so you can try another card`
+    );
+    return { order: updated, outcome: 'failed' };
   });
+}
+
+// --- BUG 4: release stock held by orders nobody came back to pay for ---
+async function expireStaleReservations() {
+  const stale = await db('orders')
+    .whereIn('status', ['pending_payment', 'payment_failed'])
+    .whereNotNull('reservation_expires_at')
+    .where('reservation_expires_at', '<', new Date())
+    .select('id', 'reference');
+
+  const expired = [];
+  for (const row of stale) {
+    try {
+      await db.transaction(async (trx) => {
+        // Re-read under a lock: a payment may have landed since the sweep began.
+        const order = await trx('orders').where({ id: row.id }).forUpdate().first();
+        if (!['pending_payment', 'payment_failed'].includes(order.status)) return;
+        if (!order.reservation_expires_at || new Date(order.reservation_expires_at) >= new Date()) return;
+
+        await releaseStock(trx, order.id);
+        await trx('orders').where({ id: order.id }).update({
+          status: 'cancelled',
+          cancelled_at: trx.fn.now(),
+          cancel_reason: 'Payment not completed in time',
+          reservation_expires_at: null,
+          updated_at: trx.fn.now(),
+        });
+        await recordEvent(trx, order.id, 'cancelled', 'Reservation expired — items returned to stock');
+        expired.push(order.reference);
+      });
+    } catch (err) {
+      console.error(`[expiry] ${row.reference}: ${err.message}`);
+    }
+  }
+  return expired;
 }
 
 async function cancelOrder(orderId, { userId, reason, byAdmin = false }) {
@@ -195,6 +287,7 @@ async function cancelOrder(orderId, { userId, reason, byAdmin = false }) {
         `An order that is already ${order.status.replace('_', ' ')} cannot be cancelled. Request a refund instead.`
       );
     }
+    const wasPaid = order.status === 'paid';
 
     await releaseStock(trx, orderId);
     const [updated] = await trx('orders')
@@ -203,11 +296,16 @@ async function cancelOrder(orderId, { userId, reason, byAdmin = false }) {
         status: 'cancelled',
         cancelled_at: trx.fn.now(),
         cancel_reason: reason || null,
+        reservation_expires_at: null,
         updated_at: trx.fn.now(),
       })
       .returning('*');
     await recordEvent(trx, orderId, 'cancelled', reason || 'Cancelled by customer');
-    return updated;
+
+    // Cancelling an order that was already paid for has to return the money,
+    // not just the stock. Flagged here and performed by the caller, because
+    // the refund is a network call and must not run inside this transaction.
+    return { order: updated, refundRequired: wasPaid };
   });
 }
 
@@ -392,6 +490,9 @@ async function listShippingMethods() {
 
 module.exports = {
   createOrder,
+  expireStaleReservations,
+  RESERVATION_MINUTES,
+  PAYABLE,
   updateFulfilment,
   FULFILMENT_FLOW,
   markPaid,

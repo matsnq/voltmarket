@@ -92,6 +92,14 @@ async function claimEvent(eventKey, source, meta) {
   }
 }
 
+// Claiming marks an event handled *before* the work runs, which is what stops
+// two concurrent deliveries doing it twice. But if the work then fails, the
+// claim must go — otherwise the retry sees "already handled", skips, and the
+// failure is swallowed forever.
+async function releaseEvent(eventKey) {
+  await db('processed_events').where({ event_key: eventKey }).del();
+}
+
 async function handleStripeEvent(event) {
   const relevant = ['payment_intent.succeeded', 'payment_intent.payment_failed', 'payment_intent.canceled'];
   if (!relevant.includes(event.type)) return { ignored: true, type: event.type };
@@ -264,5 +272,6 @@ module.exports = {
   verifySignature,
   handleStripeEvent,
   claimEvent,
+  releaseEvent,
   refundOrder,
 };

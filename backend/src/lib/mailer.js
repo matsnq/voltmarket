@@ -7,14 +7,24 @@ const transport = nodemailer.createTransport({
   secure: false, // Mailpit in dev; swap for a real provider + TLS in production
 });
 
-async function sendMail({ to, subject, html, text }) {
-  if (process.env.NODE_ENV === 'test') return; // no SMTP in unit/integration tests
+// Two kinds of caller, two correct behaviours:
+//
+//   - Request path (welcome, password reset): a dead mail server must not
+//     fail the user's request, so failures are logged and swallowed.
+//   - Queue worker (order confirmations): the message *must not* be
+//     acknowledged if the email never went, so failures have to propagate and
+//     let the retry/dead-letter machinery do its job.
+//
+// The previous version always swallowed, while its own comment claimed order
+// emails were retried through the queue. They were not — a failed send was
+// lost silently. `required: true` is what makes that comment true.
+async function sendMail({ to, subject, html, text, required = false }) {
+  if (process.env.NODE_ENV === 'test') return;
   try {
     await transport.sendMail({ from: config.smtp.from, to, subject, html, text });
   } catch (err) {
-    // Email failures must never take down a request; they are logged and
-    // (for order events) retried through the message queue.
     console.error('[mailer]', err.message);
+    if (required) throw new Error(`Could not send "${subject}" to ${to}: ${err.message}`);
   }
 }
 

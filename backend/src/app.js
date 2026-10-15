@@ -10,6 +10,7 @@ const authRoutes = require('./modules/auth/auth.routes');
 const catalogRoutes = require('./modules/catalog/catalog.routes');
 const cartRoutes = require('./modules/cart/cart.routes');
 const orderRoutes = require('./modules/orders/orders.routes');
+const addressRoutes = require('./modules/users/addresses.routes');
 const paymentRoutes = require('./modules/payments/payments.routes');
 
 function createApp() {
@@ -38,6 +39,7 @@ function createApp() {
   app.use('/api/v1/auth', authRoutes);
   app.use('/api/v1', catalogRoutes);
   app.use('/api/v1/cart', cartRoutes);
+  app.use('/api/v1/addresses', addressRoutes);
   app.use('/api/v1', orderRoutes);
   app.use('/api/v1/payments', paymentRoutes);
 
