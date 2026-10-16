@@ -99,20 +99,39 @@ exports.seed = async function seed(knex) {
     }
   }
 
-  // One pending review so review moderation has something to act on.
-  const first = products[0];
-  const flagged = userIds[userIds.length - 1];
-  const already = await knex('reviews')
-    .where({ product_id: first.id, user_id: flagged.id })
-    .first();
-  if (!already) {
+  // Two reviews awaiting moderation, so the admin queue is never empty.
+  // They use their own accounts rather than a reviewer from the list above:
+  // one of those may already have reviewed the product, and the unique
+  // (product_id, user_id) constraint would then silently drop these.
+  const flaggedAccounts = [
+    ['Spam Bot', 'spam.bot@example.com', 1,
+      'BUY CHEAP CHARGERS AT my-totally-legit-site.example',
+      'Click my link for the best deals anywhere, limited time offer, do not miss out!!!'],
+    ['Angry Customer', 'angry.customer@example.com', 1,
+      'This is a disgrace',
+      'Absolutely useless company, the staff are [redacted] and I will be telling everyone.'],
+  ];
+
+  for (let i = 0; i < flaggedAccounts.length; i += 1) {
+    const [fname, femail, rating, title, body] = flaggedAccounts[i];
+    let account = await knex('users').where({ email: femail }).first();
+    if (!account) {
+      [account] = await knex('users')
+        .insert({
+          email: femail,
+          password_hash: bcrypt.hashSync('Review123!', 10),
+          name: fname,
+          email_verified: true,
+        })
+        .returning('*');
+    }
     await knex('reviews').insert({
-      product_id: first.id,
-      user_id: flagged.id,
-      author_snapshot: flagged.name,
-      rating: 1,
-      title: 'BUY CHEAP CHARGERS AT my-totally-legit-site.example',
-      body: 'Click my link for the best deals anywhere, limited time offer, do not miss out!!!',
+      product_id: products[i % products.length].id,
+      user_id: account.id,
+      author_snapshot: account.name,
+      rating,
+      title,
+      body,
       verified_purchase: false,
       status: 'pending',
     });
