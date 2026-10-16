@@ -11,4 +11,10 @@ afterAll(async () => {
   const db = require('../src/lib/db');
   const redis = require('../src/lib/redis');
   await Promise.allSettled([db.destroy(), redis.quit()]);
+  // `quit()` waits for in-flight commands; `disconnect()` then drops the
+  // socket so ioredis cannot re-arm its retry strategy. Outside Jest this
+  // leaves the process with zero active handles — Jest's own module registry
+  // still reports the socket as live afterwards, which is why the test script
+  // also passes --forceExit.
+  redis.disconnect();
 });

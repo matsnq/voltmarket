@@ -7,3 +7,6 @@ coverage/
 .DS_Store
 backend/uploads/
 frontend/.vite/
+
+# Local editor/tooling config (machine-specific absolute paths)
+.claude/

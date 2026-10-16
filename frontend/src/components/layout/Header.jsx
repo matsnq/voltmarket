@@ -1,8 +1,10 @@
 import { Link, NavLink } from 'react-router-dom';
-import { Zap, User, LogOut, ShoppingCart } from 'lucide-react';
+import { Zap, User, LogOut, ShoppingCart, LayoutDashboard } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useCart } from '../../hooks/useCart';
 import QuickSearch from './QuickSearch';
+
+const STAFF = ['admin', 'sales', 'support'];
 
 export default function Header() {
   const { user, logout } = useAuth();
@@ -45,6 +47,14 @@ export default function Header() {
 
           {user ? (
             <>
+              {STAFF.includes(user.role) && (
+                <NavLink to="/admin" className={navLinkClass}>
+                  <span className="flex items-center gap-1">
+                    <LayoutDashboard className="h-4 w-4" aria-hidden="true" />
+                    <span className="hidden sm:inline">Admin</span>
+                  </span>
+                </NavLink>
+              )}
               <NavLink to="/account" className={navLinkClass}>
                 <span className="flex items-center gap-1">
                   <User className="h-4 w-4" aria-hidden="true" />

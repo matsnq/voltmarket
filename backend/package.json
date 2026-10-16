@@ -11,13 +11,14 @@
     "migrate": "knex migrate:latest",
     "migrate:rollback": "knex migrate:rollback",
     "seed": "knex seed:run",
-    "test": "jest --runInBand",
+    "test": "jest --runInBand --forceExit",
     "test:unit": "jest tests/unit",
     "test:integration": "jest tests/integration --runInBand",
     "test:security": "jest tests/security --runInBand"
   },
   "jest": {
     "testEnvironment": "node",
+    "maxWorkers": 1,
     "globalSetup": "<rootDir>/tests/globalSetup.js",
     "setupFilesAfterEnv": ["<rootDir>/tests/setup.js"]
   },

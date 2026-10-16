@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './hooks/useAuth';
 import { CartProvider } from './hooks/useCart';
@@ -14,6 +15,27 @@ import Cart from './pages/Cart';
 import Checkout from './pages/Checkout';
 import OrderConfirmation from './pages/OrderConfirmation';
 import NotFound from './pages/NotFound';
+
+// The admin console is lazy-loaded: it is used by three staff accounts and
+// would otherwise sit in the bundle every customer downloads.
+const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'));
+const Dashboard = lazy(() => import('./pages/admin/Dashboard'));
+const AdminProducts = lazy(() => import('./pages/admin/Products'));
+const BulkImport = lazy(() => import('./pages/admin/BulkImport'));
+const Categories = lazy(() => import('./pages/admin/Categories'));
+const AdminOrders = lazy(() => import('./pages/admin/Orders').then((m) => ({ default: m.AdminOrders })));
+const AdminOrderDetail = lazy(() => import('./pages/admin/Orders').then((m) => ({ default: m.AdminOrderDetail })));
+const Moderation = lazy(() => import('./pages/admin/Moderation'));
+const AdminUsers = lazy(() => import('./pages/admin/Users'));
+const AuditLog = lazy(() => import('./pages/admin/AuditLog'));
+
+function AdminFallback() {
+  return (
+    <main className="mx-auto max-w-6xl px-4 py-16" aria-busy="true">
+      <p className="text-sm text-gray-500">Loading the admin console…</p>
+    </main>
+  );
+}
 
 export default function App() {
   return (
@@ -35,6 +57,26 @@ export default function App() {
               <Route path="/cart" element={<Cart />} />
               <Route path="/checkout" element={<Checkout />} />
               <Route path="/orders/:reference" element={<OrderConfirmation />} />
+
+              <Route
+                path="/admin"
+                element={
+                  <Suspense fallback={<AdminFallback />}>
+                    <AdminLayout />
+                  </Suspense>
+                }
+              >
+                <Route index element={<Dashboard />} />
+                <Route path="products" element={<AdminProducts />} />
+                <Route path="products/import" element={<BulkImport />} />
+                <Route path="categories" element={<Categories />} />
+                <Route path="orders" element={<AdminOrders />} />
+                <Route path="orders/:reference" element={<AdminOrderDetail />} />
+                <Route path="reviews" element={<Moderation />} />
+                <Route path="users" element={<AdminUsers />} />
+                <Route path="audit" element={<AuditLog />} />
+              </Route>
+
               <Route path="*" element={<NotFound />} />
             </Routes>
           </div>
