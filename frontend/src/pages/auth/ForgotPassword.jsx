@@ -33,7 +33,7 @@ export default function ForgotPassword() {
         <title>Reset Your Password — Voltmarket</title>
         <meta
           name="description"
-          content="Request a password reset link for your Voltmarket account by email."
+          content="Forgotten your Voltmarket password? Enter the email address on your account and we will send a secure reset link, valid for one hour and usable only once."
         />
       </Helmet>
       <h1 className="mb-2 text-2xl font-bold text-gray-900">Forgot your password?</h1>

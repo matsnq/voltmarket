@@ -128,9 +128,9 @@ export default function AdminLayout() {
           </ul>
         </nav>
 
-        <div className="min-w-0">
+        <main className="min-w-0">
           <Outlet />
-        </div>
+        </main>
       </div>
     </div>
   );

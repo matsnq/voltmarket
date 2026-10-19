@@ -34,7 +34,7 @@ export default function About() {
         <title>About Voltmarket — Our Mission and Team</title>
         <meta
           name="description"
-          content="Voltmarket is an Estonian electric vehicle retailer selling EVs, home chargers and accessories. Meet the team and read what we stand for."
+          content="Voltmarket is an Estonian retailer selling electric cars, home chargers and EV accessories. Read our mission, meet the team and see our company details."
         />
       </Helmet>
 

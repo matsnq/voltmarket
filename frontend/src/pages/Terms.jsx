@@ -23,7 +23,7 @@ export default function Terms() {
         <title>Terms &amp; Privacy Policy — Voltmarket</title>
         <meta
           name="description"
-          content="Voltmarket's terms of service and privacy policy: how orders and returns work, what personal data we collect, how it is encrypted, how long we keep it and your GDPR rights."
+          content="Voltmarket's terms of service and privacy policy: how orders and returns work, what data we collect, how it is encrypted and your rights under the GDPR."
         />
       </Helmet>
 

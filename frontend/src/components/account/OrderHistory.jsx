@@ -136,7 +136,7 @@ export default function OrderHistory() {
                             className="h-12 w-12 rounded-lg border border-gray-200 object-cover"
                           />
                         ) : (
-                          <span className="flex h-12 w-12 items-center justify-center rounded-lg border border-gray-200 bg-gray-50 text-xs text-gray-400">
+                          <span className="flex h-12 w-12 items-center justify-center rounded-lg border border-gray-200 bg-gray-50 text-xs text-gray-600">
                             {item.quantity}×
                           </span>
                         )}

@@ -6,6 +6,12 @@ export default function NotFound() {
     <main className="mx-auto max-w-md px-4 py-20 text-center">
       <Helmet>
         <title>Page Not Found — Voltmarket</title>
+        <meta
+          name="description"
+          content="That Voltmarket page does not exist or has moved. Head back to the homepage, or browse our full range of electric cars, home chargers and EV accessories."
+        />
+        {/* A 404 has nothing worth indexing and would dilute the real pages. */}
+        <meta name="robots" content="noindex, follow" />
       </Helmet>
       <p className="text-6xl font-bold text-brand-200" aria-hidden="true">
         404

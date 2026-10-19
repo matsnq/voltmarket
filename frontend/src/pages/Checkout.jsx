@@ -198,9 +198,11 @@ export default function Checkout() {
     <main className="mx-auto max-w-6xl px-4 py-8">
       <Helmet>
         <title>Secure Checkout — Voltmarket</title>
+        {/* Personal to one shopper — nothing here belongs in an index. */}
+        <meta name="robots" content="noindex, follow" />
         <meta
           name="description"
-          content="Complete your Voltmarket order: delivery details, shipping options and secure card payment."
+          content="Complete your Voltmarket order in three steps: delivery address, shipping method and secure card payment. Guest checkout available, no account required."
         />
       </Helmet>
 
@@ -421,7 +423,7 @@ export default function Checkout() {
                               {m.price.formatted}
                             </span>
                           </span>
-                          <span className="mt-0.5 block text-xs text-gray-500">
+                          <span className="mt-0.5 block text-xs text-gray-600">
                             {m.description} · {m.etaDays[0]}–{m.etaDays[1]} business days
                           </span>
                         </span>

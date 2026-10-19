@@ -13,6 +13,22 @@ const SORTS = [
   ['newest', 'Newest'],
 ];
 
+// Category names range from "sedans" to "charging accessories", a 14-character
+// spread that no single sentence can absorb while staying inside the 150-160
+// character window search engines show. So pick the longest tail that still
+// fits: short names get the fullest sentence, long names a tighter one.
+const CATEGORY_TAILS = [
+  ' Compare real-world range, battery size, price and owner ratings, then buy online with secure checkout and delivery across 16 EU countries.',
+  ' Compare real-world range, battery size, price and owner ratings, then order online with secure checkout and fast EU delivery.',
+  ' Compare range, battery, price and owner ratings, then order online with secure checkout and fast delivery across the EU.',
+];
+
+function categoryDescription(name) {
+  const head = `Shop ${name} at Voltmarket.`;
+  const tail = CATEGORY_TAILS.find((t) => (head + t).length <= 160) ?? CATEGORY_TAILS.at(-1);
+  return (head + tail).slice(0, 160);
+}
+
 export default function ProductList() {
   const [params, setParams] = useSearchParams();
   const [data, setData] = useState(null);
@@ -93,14 +109,22 @@ export default function ProductList() {
 
   const title = q ? `Search: ${q}` : category ? category.replace(/-/g, ' ') : 'All products';
 
+  // A category page and a search page must not share one description —
+  // duplicate meta across URLs is exactly what search engines discount.
+  // Titles stay under 60 characters even for a long search query.
+  const heading = title.charAt(0).toUpperCase() + title.slice(1);
+  const pageTitle = `${heading} — Voltmarket`.slice(0, 60);
+  const metaDescription = q
+    ? `Search results for "${q}" at Voltmarket. Filter electric cars, home chargers and EV accessories by brand, price, range and rating, then buy online.`.slice(0, 160)
+    : category
+      ? categoryDescription(title)
+      : 'Browse every electric car, home charger, cable and EV accessory at Voltmarket. Filter by brand, price, range and rating, with fast delivery across the EU.';
+
   return (
     <main className="mx-auto max-w-6xl px-4 py-8">
       <Helmet>
-        <title>{`${title.charAt(0).toUpperCase() + title.slice(1)} — Voltmarket`}</title>
-        <meta
-          name="description"
-          content="Browse electric cars, home chargers, cables and EV accessories. Filter by brand, price, range and rating."
-        />
+        <title>{pageTitle}</title>
+        <meta name="description" content={metaDescription} />
       </Helmet>
 
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
@@ -236,7 +260,7 @@ export default function ProductList() {
                           className="h-3.5 w-3.5 accent-brand-600"
                         />
                         {b.name}
-                        <span className="text-xs text-gray-400">({b.count})</span>
+                        <span className="text-xs text-gray-600">({b.count})</span>
                       </label>
                     </li>
                   ))}
@@ -316,7 +340,14 @@ export default function ProductList() {
           </div>
         </aside>
 
-        <div>
+        <section aria-labelledby="results-heading">
+          {/* The product cards are h3. Without this h2 the document goes
+              straight from the page h1 to h3 whenever the filter sidebar is
+              collapsed — which is every phone-width viewport. */}
+          <h2 id="results-heading" className="sr-only">
+            {q ? `Search results for ${q}` : 'Products'}
+            {data ? ` — ${data.total} found` : ''}
+          </h2>
           {loading && <p className="text-sm text-gray-500">Loading products…</p>}
           {error && (
             <p role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -371,7 +402,7 @@ export default function ProductList() {
               </button>
             </nav>
           )}
-        </div>
+        </section>
       </div>
     </main>
   );

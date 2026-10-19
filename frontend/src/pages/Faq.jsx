@@ -140,7 +140,7 @@ export default function Faq() {
         <title>FAQ — Shipping, Payment and Returns | Voltmarket</title>
         <meta
           name="description"
-          content="Answers to common Voltmarket questions about delivery times, payment security, the 14-day return policy, home charger choice and account security."
+          content="Answers to the questions we get most about Voltmarket delivery times, payment security, our 14-day return policy, choosing a home charger and your account."
         />
       </Helmet>
 

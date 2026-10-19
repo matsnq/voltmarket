@@ -18,9 +18,11 @@ export default function Cart() {
     <main className="mx-auto max-w-5xl px-4 py-8">
       <Helmet>
         <title>Your Shopping Cart — Voltmarket</title>
+        {/* Personal to one shopper — nothing here belongs in an index. */}
+        <meta name="robots" content="noindex, follow" />
         <meta
           name="description"
-          content="Review the electric cars and EV accessories in your Voltmarket cart before checking out."
+          content="Review the electric cars, chargers and EV accessories in your Voltmarket basket. Update quantities, remove items and see your subtotal before checking out."
         />
       </Helmet>
 

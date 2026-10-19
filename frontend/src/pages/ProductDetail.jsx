@@ -77,6 +77,7 @@ export default function ProductDetail() {
       <main className="mx-auto max-w-md px-4 py-20 text-center">
         <Helmet>
           <title>Product Not Found — Voltmarket</title>
+          <meta name="robots" content="noindex, follow" />
         </Helmet>
         <h1 className="text-2xl font-bold text-gray-900">Product not found</h1>
         <p className="mt-2 text-sm text-gray-600">{error || 'It may have been removed.'}</p>

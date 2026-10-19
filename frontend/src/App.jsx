@@ -48,8 +48,20 @@ export default function App() {
     <AuthProvider>
       <CartProvider>
         <div className="flex min-h-screen flex-col">
+          {/* WCAG 2.4.1: let keyboard and screen-reader users jump past the
+              header and its navigation, which repeat on every page. Visible
+              only once focused. */}
+          <a
+            href="#main-content"
+            className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-brand-700 focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-white"
+          >
+            Skip to main content
+          </a>
           <Header />
-          <div className="flex-1">
+          {/* The skip link's target. tabIndex -1 makes it focusable by the
+              jump without putting it in the tab order. Every page renders its
+              own <main> inside here. */}
+          <div id="main-content" tabIndex={-1} className="flex-1 focus:outline-none">
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/login" element={<Login />} />

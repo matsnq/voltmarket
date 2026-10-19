@@ -82,7 +82,7 @@ export default function Register() {
         <title>Create an Account — Voltmarket</title>
         <meta
           name="description"
-          content="Sign up for Voltmarket to buy electric cars, chargers and EV accessories with secure checkout and order tracking."
+          content="Create a free Voltmarket account to buy electric cars, home chargers and EV accessories, track your orders and save delivery addresses for faster checkout."
         />
       </Helmet>
       <h1 className="mb-6 text-2xl font-bold text-gray-900">Create your account</h1>

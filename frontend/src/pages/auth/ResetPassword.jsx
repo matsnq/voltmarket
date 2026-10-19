@@ -43,6 +43,7 @@ export default function ResetPassword() {
       <main className="mx-auto max-w-md px-4 py-10">
         <Helmet>
           <title>Invalid Reset Link — Voltmarket</title>
+        <meta name="robots" content="noindex, nofollow" />
         </Helmet>
         <div role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
           This reset link is incomplete.{' '}
@@ -59,7 +60,8 @@ export default function ResetPassword() {
     <main className="mx-auto max-w-md px-4 py-10">
       <Helmet>
         <title>Choose a New Password — Voltmarket</title>
-        <meta name="description" content="Set a new password for your Voltmarket account." />
+        <meta name="robots" content="noindex, nofollow" />
+        <meta name="description" content="Choose a new password for your Voltmarket account. Pick at least eight characters with a mix of letters and numbers to keep your order history secure." />
       </Helmet>
       <h1 className="mb-6 text-2xl font-bold text-gray-900">Choose a new password</h1>
 

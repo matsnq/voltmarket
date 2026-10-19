@@ -91,6 +91,7 @@ export default function OrderConfirmation() {
       <main className="mx-auto max-w-md px-4 py-16">
         <Helmet>
           <title>Find Your Order — Voltmarket</title>
+          <meta name="robots" content="noindex, follow" />
         </Helmet>
         <h1 className="mb-2 text-2xl font-bold text-gray-900">Find order {reference}</h1>
         <p className="mb-6 text-sm text-gray-600">
@@ -120,6 +121,7 @@ export default function OrderConfirmation() {
       <main className="mx-auto max-w-md px-4 py-16 text-center">
         <Helmet>
           <title>Order Not Found — Voltmarket</title>
+          <meta name="robots" content="noindex, follow" />
         </Helmet>
         <h1 className="text-2xl font-bold text-gray-900">We could not find that order</h1>
         <p className="mt-2 text-sm text-gray-600">{error || 'Check the reference and try again.'}</p>
@@ -138,7 +140,11 @@ export default function OrderConfirmation() {
     <main className="mx-auto max-w-3xl px-4 py-8">
       <Helmet>
         <title>{`Order ${order.reference} — Voltmarket`}</title>
-        <meta name="description" content={`Status and summary for Voltmarket order ${order.reference}.`} />
+        <meta
+          name="description"
+          content={`Track Voltmarket order ${order.reference}: current status, the items you bought, delivery address, shipping method and the total you paid.`}
+        />
+        <meta name="robots" content="noindex, follow" />
       </Helmet>
 
       <div className={`mb-6 flex items-start gap-3 rounded-2xl p-5 ${TONES[ui.tone]}`}>
@@ -249,7 +255,7 @@ export default function OrderConfirmation() {
                 <span className="text-gray-900">
                   {(STATUS_UI[event.status] || {}).label || event.status}
                   {event.note && <span className="text-gray-500"> — {event.note}</span>}
-                  <span className="ml-2 text-xs text-gray-400">
+                  <span className="ml-2 text-xs text-gray-600">
                     {new Date(event.at).toLocaleString('en-GB')}
                   </span>
                 </span>

@@ -104,7 +104,7 @@ export default function OrderSummary({ cart, shippingMethod, onUpdateQty, onRemo
             <dt className="text-gray-600">
               Shipping
               {shippingMethod && (
-                <span className="ml-1 text-xs text-gray-400">({shippingMethod.name})</span>
+                <span className="ml-1 text-xs text-gray-600">({shippingMethod.name})</span>
               )}
             </dt>
             <dd className="font-medium text-gray-900">

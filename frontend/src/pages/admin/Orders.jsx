@@ -207,7 +207,7 @@ export function AdminOrderDetail() {
               <span>
                 <span className="font-medium text-gray-900">{e.status.replace(/_/g, ' ')}</span>
                 {e.note && <span className="text-gray-600"> — {e.note}</span>}
-                <span className="ml-2 text-xs text-gray-400">{new Date(e.at).toLocaleString('en-GB')}</span>
+                <span className="ml-2 text-xs text-gray-600">{new Date(e.at).toLocaleString('en-GB')}</span>
               </span>
             </li>
           ))}

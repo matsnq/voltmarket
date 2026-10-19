@@ -20,7 +20,7 @@ export default function Home() {
         <title>Voltmarket — Electric Cars &amp; EV Gear Online</title>
         <meta
           name="description"
-          content="Buy electric cars, home chargers and EV accessories at Voltmarket. Compare range, battery and price, with secure checkout and delivery across Europe."
+          content="Buy electric cars, home chargers and EV accessories at Voltmarket. Compare real-world range, battery size and price, with secure checkout and EU delivery."
         />
       </Helmet>
 

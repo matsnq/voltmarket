@@ -50,7 +50,7 @@ export default function Account() {
         <title>Your Account — Voltmarket</title>
         <meta
           name="description"
-          content="Manage your Voltmarket profile, view your order history, save delivery addresses and set up two-factor authentication."
+          content="Manage your Voltmarket account: update your profile, review past orders and tracking numbers, save delivery addresses and turn on two-factor authentication."
         />
         {/* Nothing behind a login belongs in a search index. */}
         <meta name="robots" content="noindex, nofollow" />

@@ -101,7 +101,7 @@ export default function Contact() {
         <title>Contact Support — Voltmarket</title>
         <meta
           name="description"
-          content="Get in touch with the Voltmarket support team about an order, a product, a return or a technical problem. We reply within one working day."
+          content="Contact the Voltmarket support team about an order, a product question, a return or a technical problem. We read every message and reply within a day."
         />
       </Helmet>
 

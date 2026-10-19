@@ -61,7 +61,7 @@ export default function Login() {
         <title>Log In — Voltmarket</title>
         <meta
           name="description"
-          content="Log in to your Voltmarket account to manage orders, addresses and security settings."
+          content="Log in to your Voltmarket account to track orders, manage saved delivery addresses and change your security settings, including two-factor authentication."
         />
       </Helmet>
       <h1 className="mb-6 text-2xl font-bold text-gray-900">Log in</h1>

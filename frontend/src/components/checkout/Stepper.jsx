@@ -24,14 +24,14 @@ export default function Stepper({ current }) {
                   ? 'bg-brand-600 text-white'
                   : active
                     ? 'bg-gray-900 text-white'
-                    : 'bg-gray-100 text-gray-400'
+                    : 'bg-gray-100 text-gray-600'
               }`}
             >
               {done ? <Check className="h-4 w-4" aria-hidden="true" /> : i + 1}
             </span>
             <span
               className={`whitespace-nowrap text-sm font-medium ${
-                active ? 'text-gray-900' : done ? 'text-brand-700' : 'text-gray-400'
+                active ? 'text-gray-900' : done ? 'text-brand-700' : 'text-gray-600'
               }`}
             >
               {step.label}

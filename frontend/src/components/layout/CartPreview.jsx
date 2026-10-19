@@ -136,7 +136,7 @@ export default function CartPreview() {
                       <button
                         type="button"
                         onClick={() => removeItem(item.id)}
-                        className="text-xs text-gray-400 underline transition hover:text-red-600"
+                        className="text-xs text-gray-600 underline transition hover:text-red-600"
                       >
                         Remove
                         <span className="sr-only"> {item.name} from cart</span>

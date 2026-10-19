@@ -58,7 +58,7 @@ export default function AuditLog() {
                       ? <code className="block max-w-sm truncate text-xs text-gray-600" title={JSON.stringify(e.meta)}>
                           {JSON.stringify(e.meta)}
                         </code>
-                      : <span className="text-xs text-gray-400">—</span>}
+                      : <span className="text-xs text-gray-600">—</span>}
                   </td>
                 </tr>
               ))}
