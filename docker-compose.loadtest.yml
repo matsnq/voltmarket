@@ -1,0 +1,19 @@
+# Overlay used only while running the k6 suite:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.loadtest.yml up -d
+#
+# It turns off the token-bucket rate limiter. Every virtual user comes from
+# one machine, so they all share a source IP and land in the same bucket —
+# 120 tokens refilling at 2/second. Left on, the test would measure the
+# limiter rather than the application, and 50 concurrent users could never be
+# reached by design.
+#
+# The limiter itself is verified separately, by the automated test in
+# backend/tests/security/security.test.js.
+services:
+  api:
+    environment:
+      DISABLE_RATE_LIMIT: "1"
+  worker:
+    environment:
+      DISABLE_RATE_LIMIT: "1"
