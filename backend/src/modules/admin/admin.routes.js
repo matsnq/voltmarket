@@ -15,6 +15,8 @@ const {
   orderQuerySchema, pageSchema,
 } = require('./admin.validation');
 const { moderateSchema, moderationQuerySchema } = require('../reviews/reviews.validation');
+const support = require('../support/support.service');
+const { listSchema: contactListSchema, updateSchema: contactUpdateSchema } = require('../support/support.validation');
 
 const router = Router();
 
@@ -176,6 +178,19 @@ router.get('/users', adminOnly, validate(userQuerySchema, 'query'), async (req, 
 router.patch('/users/:id', adminOnly, validate(userUpdateSchema), async (req, res, next) => {
   try {
     res.json({ user: await service.updateUser(req.params.id, req.validated.body, req.user.id) });
+  } catch (err) { next(err); }
+});
+
+// ---------- Support inbox ----------
+router.get('/contact-messages', staff, validate(contactListSchema, 'query'), async (req, res, next) => {
+  try {
+    res.json(await support.list(req.validated.query));
+  } catch (err) { next(err); }
+});
+
+router.patch('/contact-messages/:id', staff, validate(contactUpdateSchema), async (req, res, next) => {
+  try {
+    res.json({ message: await support.updateStatus(req.params.id, req.validated.body.status, req.user.id) });
   } catch (err) { next(err); }
 });
 

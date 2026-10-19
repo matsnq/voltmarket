@@ -298,10 +298,16 @@ through the same queue, so the order heals itself. The log line to look for is
 
 ### Demo accounts
 
-| Email                    | Password    | Role                                              |
-| ------------------------ | ----------- | ------------------------------------------------- |
-| `admin@voltmarket.local` | `Admin123!` | admin (forced to enroll 2FA on first login)       |
-| `demo@voltmarket.local`  | `Demo123!`  | customer (2FA off, so you can enroll it yourself) |
+| Email                      | Password      | Role                                              |
+| -------------------------- | ------------- | ------------------------------------------------- |
+| `admin@voltmarket.local`   | `Admin123!`   | admin (forced to enroll 2FA on first login)       |
+| `support@voltmarket.local` | `Support123!` | support — orders, reviews and the support inbox   |
+| `sales@voltmarket.local`   | `Sales123!`   | sales — products, categories and bulk import      |
+| `demo@voltmarket.local`    | `Demo123!`    | customer (2FA off, so you can enroll it yourself) |
+
+Sign in as `support` and then as `sales` to see role-based access in action:
+the admin sidebar shows a different set of sections for each, and the API
+refuses the rest regardless of what the UI offers.
 
 ## Try it in the browser
 

@@ -3,6 +3,7 @@ import { Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './hooks/useAuth';
 import { CartProvider } from './hooks/useCart';
 import Header from './components/layout/Header';
+import Footer from './components/layout/Footer';
 import Home from './pages/Home';
 import Login from './pages/auth/Login';
 import Register from './pages/auth/Register';
@@ -14,6 +15,10 @@ import ProductDetail from './pages/ProductDetail';
 import Cart from './pages/Cart';
 import Checkout from './pages/Checkout';
 import OrderConfirmation from './pages/OrderConfirmation';
+import Contact from './pages/Contact';
+import About from './pages/About';
+import Faq from './pages/Faq';
+import Terms from './pages/Terms';
 import NotFound from './pages/NotFound';
 
 // The admin console is lazy-loaded: it is used by three staff accounts and
@@ -26,6 +31,7 @@ const Categories = lazy(() => import('./pages/admin/Categories'));
 const AdminOrders = lazy(() => import('./pages/admin/Orders').then((m) => ({ default: m.AdminOrders })));
 const AdminOrderDetail = lazy(() => import('./pages/admin/Orders').then((m) => ({ default: m.AdminOrderDetail })));
 const Moderation = lazy(() => import('./pages/admin/Moderation'));
+const Messages = lazy(() => import('./pages/admin/Messages'));
 const AdminUsers = lazy(() => import('./pages/admin/Users'));
 const AuditLog = lazy(() => import('./pages/admin/AuditLog'));
 
@@ -57,6 +63,10 @@ export default function App() {
               <Route path="/cart" element={<Cart />} />
               <Route path="/checkout" element={<Checkout />} />
               <Route path="/orders/:reference" element={<OrderConfirmation />} />
+              <Route path="/contact" element={<Contact />} />
+              <Route path="/about" element={<About />} />
+              <Route path="/faq" element={<Faq />} />
+              <Route path="/terms" element={<Terms />} />
 
               <Route
                 path="/admin"
@@ -73,6 +83,7 @@ export default function App() {
                 <Route path="orders" element={<AdminOrders />} />
                 <Route path="orders/:reference" element={<AdminOrderDetail />} />
                 <Route path="reviews" element={<Moderation />} />
+                <Route path="messages" element={<Messages />} />
                 <Route path="users" element={<AdminUsers />} />
                 <Route path="audit" element={<AuditLog />} />
               </Route>
@@ -80,9 +91,7 @@ export default function App() {
               <Route path="*" element={<NotFound />} />
             </Routes>
           </div>
-          <footer className="border-t border-gray-200 py-6 text-center text-xs text-gray-500">
-            Voltmarket — course project. No real cars were sold in the making of this shop.
-          </footer>
+          <Footer />
         </div>
       </CartProvider>
     </AuthProvider>

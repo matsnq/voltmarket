@@ -14,6 +14,7 @@ const addressRoutes = require('./modules/users/addresses.routes');
 const paymentRoutes = require('./modules/payments/payments.routes');
 const reviewRoutes = require('./modules/reviews/reviews.routes');
 const adminRoutes = require('./modules/admin/admin.routes');
+const supportRoutes = require('./modules/support/support.routes');
 
 function createApp() {
   const app = express();
@@ -45,6 +46,7 @@ function createApp() {
   app.use('/api/v1', orderRoutes);
   app.use('/api/v1/payments', paymentRoutes);
   app.use('/api/v1', reviewRoutes);
+  app.use('/api/v1', supportRoutes);
   app.use('/api/v1/admin', adminRoutes);
 
   app.use(notFound);

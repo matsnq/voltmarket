@@ -13,6 +13,8 @@ module.exports = {
     host: process.env.SMTP_HOST || 'localhost',
     port: parseInt(process.env.SMTP_PORT || '1025', 10),
     from: process.env.MAIL_FROM || 'Voltmarket <no-reply@voltmarket.local>',
+    // Where the contact form delivers. In dev this lands in Mailpit.
+    supportInbox: process.env.SUPPORT_INBOX || 'support@voltmarket.local',
   },
   jwt: {
     accessSecret: process.env.JWT_ACCESS_SECRET || 'dev_access_secret_change_me',

@@ -1,14 +1,13 @@
 import { Link, NavLink } from 'react-router-dom';
-import { Zap, User, LogOut, ShoppingCart, LayoutDashboard } from 'lucide-react';
+import { Zap, User, LogOut, LayoutDashboard } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
-import { useCart } from '../../hooks/useCart';
 import QuickSearch from './QuickSearch';
+import CartPreview from './CartPreview';
 
 const STAFF = ['admin', 'sales', 'support'];
 
 export default function Header() {
   const { user, logout } = useAuth();
-  const { cart } = useCart();
 
   const navLinkClass = ({ isActive }) =>
     `rounded-md px-2 py-2 text-sm font-medium transition sm:px-3 ${
@@ -30,20 +29,7 @@ export default function Header() {
             Shop
           </NavLink>
 
-          <NavLink to="/cart" className={navLinkClass}>
-            <span className="relative flex items-center gap-1">
-              <ShoppingCart className="h-4 w-4" aria-hidden="true" />
-              <span className="hidden sm:inline">Cart</span>
-              {cart.itemCount > 0 && (
-                <span
-                  className="ml-1 rounded-full bg-brand-600 px-1.5 py-0.5 text-xs font-semibold text-white"
-                  aria-label={`${cart.itemCount} items in cart`}
-                >
-                  {cart.itemCount}
-                </span>
-              )}
-            </span>
-          </NavLink>
+          <CartPreview />
 
           {user ? (
             <>
