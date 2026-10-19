@@ -29,8 +29,18 @@ function ok(res, name, expected = 200) {
 }
 
 // Real shoppers read. Without think time the test measures how fast a loop
-// can spin, not how the system behaves under people.
+// can spin, not how the system behaves under people — so the journey tests
+// keep it.
+//
+// The capacity test sets THINK=0. There, think time would be the thing under
+// measurement: at 400 users with 1-4 s pauses the mix can only generate
+// about 250 requests a second no matter how fast the server is, so the
+// server never gets near its limit. Removing the pauses and driving a fixed
+// arrival rate instead is what finds the actual ceiling.
+const THINK = __ENV.THINK === '0' ? 0 : 1;
+
 function think(min = 1, max = 4) {
+  if (!THINK) return;
   sleep(min + Math.random() * (max - min));
 }
 
@@ -86,7 +96,7 @@ export function search(data) {
         }),
         'suggest'
       );
-      sleep(0.2);
+      if (THINK) sleep(0.2);
     }
 
     ok(

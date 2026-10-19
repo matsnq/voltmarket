@@ -107,6 +107,175 @@ erDiagram
     reviews ||--o{ review_votes : "voted on"
 ```
 
+## Performance analysis report
+
+Measured with [k6](https://k6.io) against the full Docker stack over HTTPS.
+The scripts are in [`load-tests/`](load-tests/) and the method is documented
+there; this section is the result.
+
+**Test machine.** Apple M3 Pro, 11 cores, 18 GB, macOS 14.6.1. Docker Desktop
+with 11 CPUs and 7.65 GiB allocated to the VM. Load generator and system under
+test share the machine, so these are lower bounds — a dedicated generator
+would push the numbers higher. Container CPU figures come from `docker stats`
+and are summed across cores, so 100% means one full core, not the whole
+machine.
+
+**Rate limiting was disabled for these runs** (`docker-compose.loadtest.yml`).
+Every virtual user comes from one machine and so shares a token bucket of 120
+tokens refilling at 2/second; left on, the test would measure the limiter and
+50 concurrent users would be unreachable by design. The limiter is verified
+separately by the automated test in `backend/tests/security/security.test.js`,
+and `baseline.js` asserts that no 429 was seen so a run against a limited
+stack fails loudly rather than reporting nonsense.
+
+### Scenarios
+
+Four flows modelling real use, mixed the way traffic mixes — mostly reading,
+some searching, a minority buying, a few signing up. All include think time of
+1–4 seconds between steps, because without it a test measures how fast a loop
+spins rather than how the system behaves under people.
+
+| Flow | Steps | Share of the mix |
+| --- | --- | --- |
+| Browse | categories → listing → 2 × (product + reviews) | 60% |
+| Search | suggestions per keystroke → results → product | 20% |
+| Shop | product → add to cart → cart → shipping → checkout | 16% |
+| Account | register → login → order history | 4% |
+
+### Objectives: all met at the target load
+
+50 concurrent users for 3 minutes, 7,887 requests, 318 real orders placed.
+
+| Objective | Target | Measured | |
+| --- | --- | --- | --- |
+| 90% of requests served within | 2 s | **24.9 ms** | ✅ |
+| Concurrent users without degradation | 50 | **50** | ✅ |
+| Throughput at peak load | ≥ 10 TPS | **41.5 req/s** | ✅ |
+| Transactions completing successfully | ≥ 98% | **100%** (8,521/8,521) | ✅ |
+| Error rate | < 5% | **0.00%** (0/7,887) | ✅ |
+
+Per-endpoint latency at that load:
+
+| Step | median | p95 |
+| --- | --- | --- |
+| Search suggestions | 1.7 ms | 14 ms |
+| Category listing | 6.3 ms | 40 ms |
+| Product detail | 4.7 ms | 43 ms |
+| Add to cart | 8.8 ms | 47 ms |
+| **Checkout** | 10.7 ms | 54 ms |
+| **Login** | 82.6 ms | 95 ms |
+| **Register** | 75.6 ms | 131 ms |
+
+Checkout — which locks a stock row, writes an order and its line items inside
+one transaction — costs about the same as reading a product page. Login and
+registration cost roughly eight times more than anything else, because bcrypt
+is deliberately slow. That is the design working as intended, but it is also
+the first thing that saturates, as the next section shows.
+
+### Scaling with concurrent users
+
+Each level is its own 90-second run at a fixed number of users, so every row
+is one clean data point rather than an average across a ramp.
+
+| Concurrent users | Throughput | p95 | Errors | API CPU | Postgres CPU |
+| --- | --- | --- | --- | --- | --- |
+| 50 | 33 req/s | 10.4 ms | 0.00% | 21% | 14% |
+| 100 | 66 req/s | 8.8 ms | 0.00% | 28% | 26% |
+| 200 | 129 req/s | 5.8 ms | 0.39% | 33% | 38% |
+| 400 | 255 req/s | 5.3 ms | 0.51% | 46% | 46% |
+
+Throughput scales linearly and latency does not move. That is because think
+time, not the server, sets the pace: a browsing user issues roughly six
+requests across ten seconds, so 400 users can only generate about 250 requests
+a second however fast the server is. At 400 users the API is still under half
+a core. **Realistic user concurrency is not what limits this platform**, so
+finding the ceiling needs a different kind of test.
+
+### Capacity: where it actually breaks
+
+Think time off, a fixed arrival rate per run, k6 adding virtual users as
+needed to sustain it. Rates below are complete user journeys per second; each
+issues five to seven HTTP requests.
+
+| Journeys/s | Throughput | p95 | Errors | API CPU | nginx CPU | Postgres CPU |
+| --- | --- | --- | --- | --- | --- | --- |
+| 200 | 1,082 req/s | 3.2 ms | 0.00% | 64% | 19% | 60% |
+| 250 | **1,355 req/s** | 7.2 ms | 0.00% | **90%** | 157% | 111% |
+| 300 | 1,569 req/s | 18.5 ms | 32.3% | 102% | 282% | 152% |
+| 400 | 1,681 req/s | 3.55 s | 33.8% | 110% | 920% | 169% |
+| 500 | 1,415 req/s | 4.88 s | 27.3% | 108% | 899% | 173% |
+
+**Answers to the questions the brief asks:**
+
+- **Maximum sustainable throughput: ~1,355 requests/second.** The last rate
+  with zero errors. Beyond it a third of requests fail.
+- **Normal vs peak.** The target load of 50 users uses about 3% of that
+  ceiling. There is roughly 30× headroom over the stated requirement.
+- **Maximum concurrent users before responses exceed 5 s.** Not reachable with
+  realistic pacing — at 400 concurrent users p95 was 5.3 **milliseconds**.
+  Response times only reach 5 s past saturation, at roughly 1,400–1,700
+  req/s, by which point the platform is already refusing a third of requests.
+  Dividing the sustainable 1,355 req/s by the ~0.6 req/s an actively browsing
+  user generates gives an estimate of **around 2,200 concurrent users**. That
+  figure is derived, not directly measured: the load generator shares this
+  machine and cannot drive that many users honestly.
+- **The load that pushes CPU over 90%: about 1,355 req/s.** The API container
+  reaches 90% of one core at exactly the last healthy rate, and errors begin
+  on the next step up. Memory never came close — the API peaked at 444 MiB and
+  Postgres at 83 MiB, against 7.65 GiB available. **This platform is
+  CPU-bound, not memory-bound**, and nothing resembling a memory leak appeared
+  across any run.
+
+### Bottlenecks
+
+**1. The API is a single Node process.** This is the binding constraint.
+Node runs JavaScript on one thread, so the API container tops out near 100% —
+one core — while ten more sit idle. The table above shows it crossing 90% at
+1,355 req/s and flattening at ~110% thereafter; throughput then *falls*
+(1,681 → 1,415 req/s) as the system spends its time on work it cannot finish,
+the classic shape of congestion collapse. When the event loop can no longer
+accept connections, nginx returns **502 Bad Gateway** — confirmed in its
+access log, where every failed request under overload is a 502. The failure
+mode is refusal, not slowness, which is why p95 stays at 18 ms while a third
+of requests fail. Running Node's cluster module with one worker per core, or
+several API replicas behind the existing nginx, is the single highest-value
+change available and needs no application rewrite.
+
+**2. TLS termination is the largest CPU consumer overall.** nginx peaked at
+920% — about nine cores — against the API's 110%. It is not the bottleneck,
+because nginx is multi-process and scales across cores while the API cannot,
+but it means most of the machine's CPU is spent on encryption rather than on
+the shop. In production this belongs on a load balancer or CDN edge, which
+would free most of the machine.
+
+**3. bcrypt dominates the auth path.** At 82 ms median, login and registration
+cost roughly eight times a product page, and that cost is CPU burned inside
+the single-threaded API process. Ten logins a second consume most of a core.
+The work factor of 10 is a deliberate security choice and should not be
+lowered, but it makes authentication the most expensive thing the platform
+does and the first to suffer when the API is busy.
+
+**4. Postgres is comfortable throughout.** It peaked at 173% — under two
+cores — and 83 MiB while the API was saturated, so the schema, indexes and
+`SELECT … FOR UPDATE` locking are not limiting anything at this scale. The
+row-level locks that prevent overselling cost nothing measurable: checkout
+p95 was 54 ms at the target load, on a par with a read.
+
+### Honest limits of these numbers
+
+- Load generator and system under test share one machine. Past roughly 1,400
+  req/s, k6 is competing with Docker for the same cores, so the true ceiling
+  on dedicated hardware is higher than reported here.
+- Two unrelated containers belonging to another project were running on the
+  host. They were excluded from the figures but added background noise.
+- The 0.39% and 0.51% error rates at 200 and 400 concurrent users are early
+  502s of the same kind seen under overload, not a separate fault.
+- Measurements must be taken on mains power. On battery, macOS suspends the
+  machine every half minute or so; k6 keeps counting wall-clock time across
+  the gap, so a three-minute run reports as nineteen minutes with individual
+  requests apparently taking a quarter of an hour. Two early runs were
+  discarded for this reason before the cause was found.
+
 ## Setup & installation
 
 **Docker** plus the **[Stripe CLI](https://docs.stripe.com/stripe-cli)** (the
@@ -434,7 +603,7 @@ cannot oversell the last unit"*.
 
 ## Testing
 
-140 tests: unit, API integration and security. With the stack already running
+161 tests: unit, API integration and security. With the stack already running
 (`docker compose up -d`), run them **without installing Node**:
 
 ```bash
@@ -489,7 +658,8 @@ cd backend && npm install && npm test
 backend/     Express API — src/modules/{auth,catalog,...}, migrations/, seeds/, tests/
 frontend/    React SPA (Vite + Tailwind)
 nginx/       TLS termination + static serving + API proxy (self-signed cert)
-docs/        ERD, (later: performance report, API docs)
+load-tests/  k6 scenarios, run profiles and the method behind the report above
+docs/        ERD and design notes
 ANSWERS.md    Project 2 criteria answered, with commands that prove each
 ANSWERS-P1.md Project 1 criteria, from the earlier submission
 CHECKLIST.md progress tracker across all three projects
@@ -501,6 +671,7 @@ CHECKLIST.md progress tracker across all three projects
 | -------------- | ---------------------------------------------------------- |
 | `README.md`    | overview, setup, usage, testing (this file)                |
 | `docs/erd.md`  | full entity relationship diagram with design notes         |
+| `load-tests/README.md` | how the k6 suite is built and how to run it        |
 | `ANSWERS.md`   | each review criterion answered, with verification commands |
 | `CHECKLIST.md` | what is done and what is still planned, per project        |
 

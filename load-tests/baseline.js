@@ -33,7 +33,18 @@ export const options = {
     'checks': ['rate>0.98'],                      // 98% of transactions succeed
     'http_reqs': ['rate>10'],                     // at least 10 req/s
     'rate_limited_429': ['count==0'],             // the limiter must be off
-    'flow_shop': ['p(95)<5000'],
+
+    // Per-step latency. The flow_* trends deliberately include think time —
+    // they are journey durations, not server latency — so a threshold on
+    // them would just be measuring our own sleep() calls. These are the
+    // numbers that say something about the system.
+    'http_req_duration{step:listing}': ['p(95)<2000'],
+    'http_req_duration{step:detail}': ['p(95)<2000'],
+    'http_req_duration{step:suggest}': ['p(95)<500'],
+    'http_req_duration{step:add_to_cart}': ['p(95)<2000'],
+    'http_req_duration{step:checkout}': ['p(95)<3000'],
+    'http_req_duration{step:register}': ['p(95)<5000'],
+    'http_req_duration{step:login}': ['p(95)<5000'],
   },
 };
 
