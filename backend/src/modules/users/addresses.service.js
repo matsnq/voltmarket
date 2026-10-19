@@ -76,8 +76,23 @@ async function update(userId, id, address, { isDefault } = {}) {
 }
 
 async function remove(userId, id) {
-  const deleted = await db('addresses').where({ id, user_id: userId }).del();
-  if (!deleted) throw new HttpError(404, 'Address not found');
+  return db.transaction(async (trx) => {
+    const row = await trx('addresses').where({ id, user_id: userId }).first();
+    if (!row) throw new HttpError(404, 'Address not found');
+    await trx('addresses').where({ id }).del();
+
+    // Deleting the default would otherwise leave the account with none, so
+    // the oldest remaining address inherits the flag. Checkout falls back to
+    // the first address anyway, but an account that shows no default at all
+    // looks broken.
+    if (row.is_default) {
+      const next = await trx('addresses')
+        .where({ user_id: userId })
+        .orderBy('created_at')
+        .first();
+      if (next) await trx('addresses').where({ id: next.id }).update({ is_default: true });
+    }
+  });
 }
 
 // Called after a successful checkout: remember where a signed-in shopper sent

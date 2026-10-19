@@ -1,11 +1,22 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useSearchParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { ShieldCheck, ShieldOff, KeyRound, Copy } from 'lucide-react';
+import { ShieldCheck, ShieldOff, KeyRound, Copy, User, Package, MapPin, Lock } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { api } from '../lib/api';
 import { validateName, validateOtp } from '../lib/validators';
 import FormField from '../components/FormField';
+import OrderHistory from '../components/account/OrderHistory';
+import Addresses from '../components/account/Addresses';
+
+// Tabs live in the URL so a tab is linkable and the back button works — and
+// so the admin console's "set up 2FA" link can land on the right one.
+const TABS = [
+  ['profile', 'Profile', User],
+  ['orders', 'Orders', Package],
+  ['addresses', 'Addresses', MapPin],
+  ['security', 'Security', Lock],
+];
 
 function Section({ title, children }) {
   return (
@@ -18,7 +29,11 @@ function Section({ title, children }) {
 
 export default function Account() {
   const { user, loading, setUser, logoutAll } = useAuth();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const wants2fa = searchParams.get('setup2fa') === '1';
+  const requested = searchParams.get('tab');
+  const tab = TABS.some(([id]) => id === requested) ? requested : wants2fa ? 'security' : 'profile';
 
   if (loading) {
     return (
@@ -30,38 +45,68 @@ export default function Account() {
   if (!user) return <Navigate to="/login" replace />;
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-10">
+    <main className="mx-auto max-w-3xl px-4 py-10">
       <Helmet>
         <title>Your Account — Voltmarket</title>
         <meta
           name="description"
-          content="Manage your Voltmarket profile, security settings and two-factor authentication."
+          content="Manage your Voltmarket profile, view your order history, save delivery addresses and set up two-factor authentication."
         />
+        {/* Nothing behind a login belongs in a search index. */}
+        <meta name="robots" content="noindex, nofollow" />
       </Helmet>
-      <h1 className="mb-6 text-2xl font-bold text-gray-900">Your account</h1>
+      <h1 className="mb-1 text-2xl font-bold text-gray-900">Your account</h1>
+      <p className="mb-6 text-sm text-gray-600">{user.name} · {user.email}</p>
 
       {user.role === 'admin' && !user.totpEnabled && (
         <div role="alert" className="mb-6 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
           <strong>Admin accounts must have two-factor authentication.</strong> Admin features stay
-          locked until you enroll below.
+          locked until you enroll under Security.
         </div>
       )}
 
-      <ProfileSection user={user} setUser={setUser} />
-      <TwoFactorSection user={user} setUser={setUser} autoStart={searchParams.get('setup2fa') === '1'} />
+      <nav aria-label="Account sections" className="mb-6 border-b border-gray-200">
+        <ul className="-mb-px flex gap-1 overflow-x-auto">
+          {TABS.map(([id, label, Icon]) => (
+            <li key={id} className="flex-none">
+              <button
+                type="button"
+                onClick={() => setSearchParams(id === 'profile' ? {} : { tab: id })}
+                aria-current={tab === id ? 'page' : undefined}
+                className={`flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition ${
+                  tab === id
+                    ? 'border-brand-600 text-brand-700'
+                    : 'border-transparent text-gray-600 hover:border-gray-300 hover:text-gray-900'
+                }`}
+              >
+                <Icon className="h-4 w-4" aria-hidden="true" />
+                {label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </nav>
 
-      <Section title="Sessions">
-        <p className="mb-3 text-sm text-gray-600">
-          Log out on every device — revokes all refresh tokens and this access token.
-        </p>
-        <button
-          type="button"
-          onClick={logoutAll}
-          className="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50"
-        >
-          Log out everywhere
-        </button>
-      </Section>
+      {tab === 'profile' && <ProfileSection user={user} setUser={setUser} />}
+      {tab === 'orders' && <OrderHistory />}
+      {tab === 'addresses' && <Addresses />}
+      {tab === 'security' && (
+        <>
+          <TwoFactorSection user={user} setUser={setUser} autoStart={wants2fa} />
+          <Section title="Sessions">
+            <p className="mb-3 text-sm text-gray-600">
+              Log out on every device — revokes all refresh tokens and this access token.
+            </p>
+            <button
+              type="button"
+              onClick={logoutAll}
+              className="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50"
+            >
+              Log out everywhere
+            </button>
+          </Section>
+        </>
+      )}
     </main>
   );
 }

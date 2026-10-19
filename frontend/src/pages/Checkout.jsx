@@ -6,35 +6,11 @@ import { useCart } from '../hooks/useCart';
 import { useAuth } from '../hooks/useAuth';
 import { api, ApiError } from '../lib/api';
 import { validateEmail, serverErrorsToFields } from '../lib/validators';
+import { COUNTRIES, validateAddress } from '../lib/address';
 import FormField from '../components/FormField';
 import OrderSummary from '../components/checkout/OrderSummary';
 import Stepper from '../components/checkout/Stepper';
 import PaymentSection from '../components/checkout/PaymentSection';
-
-const COUNTRIES = [
-  ['EE', 'Estonia'], ['LV', 'Latvia'], ['LT', 'Lithuania'], ['FI', 'Finland'],
-  ['SE', 'Sweden'], ['DK', 'Denmark'], ['NO', 'Norway'], ['PL', 'Poland'],
-  ['DE', 'Germany'], ['NL', 'Netherlands'], ['BE', 'Belgium'], ['FR', 'France'],
-  ['ES', 'Spain'], ['IT', 'Italy'], ['AT', 'Austria'], ['IE', 'Ireland'],
-];
-
-// Client-side mirrors of the server's zod rules, so mistakes surface without
-// a round trip. The server remains the authority.
-function validateAddress(a) {
-  const e = {};
-  if (!a.recipient || a.recipient.trim().length < 2) e.recipient = 'Recipient name is required';
-  else if (!/^[\p{L}\p{N} .,'-]+$/u.test(a.recipient.trim()))
-    e.recipient = 'Name contains unsupported characters';
-  if (!a.street || a.street.trim().length < 3) e.street = 'Street address is required';
-  if (!a.city || !a.city.trim()) e.city = 'City is required';
-  if (!a.postalCode || a.postalCode.trim().length < 3) e.postalCode = 'Postal code is required';
-  else if (!/^[A-Za-z0-9 -]+$/.test(a.postalCode.trim()))
-    e.postalCode = 'Postal code contains unsupported characters';
-  if (!a.country) e.country = 'Choose a country';
-  if (a.phone && !/^\+?[0-9 ()-]{5,20}$/.test(a.phone.trim()))
-    e.phone = 'Enter a valid phone number';
-  return e;
-}
 
 export default function Checkout() {
   const { cart, loading: cartLoading, updateItem, removeItem, refresh } = useCart();
