@@ -124,6 +124,8 @@ export default function ProductDetail() {
         <div>
           {image ? (
             <img
+              width={image.width || undefined}
+              height={image.height || undefined}
               src={image.url}
               alt={image.alt || product.name}
               className="w-full rounded-2xl border border-gray-200 bg-gray-50 object-cover"

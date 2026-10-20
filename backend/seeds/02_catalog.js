@@ -120,6 +120,22 @@ function escapeXml(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// Card-sized variant: a third of the width and none of the text, which would
+// be illegible at this size anyway. A separate asset rather than the same one
+// scaled down, so a listing of 12 products does not fetch 12 full-size images.
+function productThumbSvg(slug, isCar) {
+  const hue = hashInt(slug, 0, 359);
+  const bg = `hsl(${hue}, 60%, 92%)`;
+  const accent = `hsl(${hue}, 70%, 45%)`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 140" role="img">
+  <rect width="240" height="140" fill="${bg}"/>
+  ${isCar
+    ? `<rect x="40" y="62" width="160" height="34" rx="12" fill="${accent}"/><circle cx="78" cy="100" r="13" fill="#374151"/><circle cx="162" cy="100" r="13" fill="#374151"/>`
+    : `<path d="M132 34 L96 78 h22 l-10 32 36-44 h-22 z" fill="${accent}"/>`}
+</svg>
+`;
+}
+
 function productSvg(name, brand, slug, isCar) {
   const hue = hashInt(slug, 0, 359);
   const bg = `hsl(${hue}, 60%, 92%)`;
@@ -158,16 +174,39 @@ async function regenerateMissingImages(knex) {
     .join('products', 'products.id', 'product_images.product_id')
     .join('brands', 'brands.id', 'products.brand_id')
     .select(
+      'product_images.id',
       'product_images.file_path',
+      'product_images.thumb_path',
       'products.name',
       'products.slug',
       'products.range_km',
       'brands.name as brand'
     );
+
   for (const row of rows) {
-    const target = path.join(UPLOADS_DIR, path.basename(row.file_path));
-    if (!fs.existsSync(target)) {
-      fs.writeFileSync(target, productSvg(row.name, row.brand, row.slug, row.range_km !== null));
+    const isCar = row.range_km !== null;
+
+    const full = path.join(UPLOADS_DIR, path.basename(row.file_path));
+    if (!fs.existsSync(full)) {
+      fs.writeFileSync(full, productSvg(row.name, row.brand, row.slug, isCar));
+    }
+
+    // Also backfills databases seeded before thumbnails existed: the seed is
+    // idempotent and will not revisit these products, so the variant has to
+    // be filled in here or it never appears.
+    const thumbName = `${row.slug}-thumb.svg`;
+    const thumb = path.join(UPLOADS_DIR, thumbName);
+    if (!fs.existsSync(thumb)) {
+      fs.writeFileSync(thumb, productThumbSvg(row.slug, isCar));
+    }
+    if (!row.thumb_path) {
+      await knex('product_images').where({ id: row.id }).update({
+        thumb_path: `/uploads/products/${thumbName}`,
+        width: 740,
+        height: 420,
+        thumb_width: 240,
+        thumb_height: 140,
+      });
     }
   }
 }
@@ -235,10 +274,17 @@ exports.seed = async function seed(knex) {
       .returning('id');
 
     const fileName = `${slug}.svg`;
+    const thumbName = `${slug}-thumb.svg`;
     fs.writeFileSync(path.join(UPLOADS_DIR, fileName), productSvg(row.name, row.brand, slug, isCar));
+    fs.writeFileSync(path.join(UPLOADS_DIR, thumbName), productThumbSvg(slug, isCar));
     await knex('product_images').insert({
       product_id: product.id,
       file_path: `/uploads/products/${fileName}`,
+      thumb_path: `/uploads/products/${thumbName}`,
+      width: 740,
+      height: 420,
+      thumb_width: 240,
+      thumb_height: 140,
       alt_text: `${row.brand} ${row.name} product photo`,
       is_primary: true,
     });

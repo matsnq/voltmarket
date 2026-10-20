@@ -106,7 +106,10 @@ export default function AdminLayout() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[200px_minmax(0,1fr)]">
-        <nav aria-label="Admin sections">
+        {/* min-w-0: a grid item defaults to min-width:auto, so without this
+            the nav grows to fit its items and the whole page scrolls
+            sideways instead of the nav strip scrolling inside itself. */}
+        <nav aria-label="Admin sections" className="min-w-0">
           <ul className="flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible">
             {visible.map(({ to, end, label, icon: Icon }) => (
               <li key={to} className="flex-none">

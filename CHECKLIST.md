@@ -55,7 +55,7 @@ submitted and reviewed previously; their answers are archived in
 - ✅ Cancellation before processing, with stock release
 - ✅ Stripe PaymentIntents — card data never touches the server; verified end to end against the sandbox
 - ✅ Refund workflow (full and partial), with over-refund protection — verified against Stripe
-- ✅ Tests: cart unit, order summary unit, guest + logged-in checkout flows (175 tests across the whole suite)
+- ✅ Tests: cart unit, order summary unit, guest + logged-in checkout flows (181 tests across the whole suite)
 - ✅ Single-page checkout UI, cart page and order confirmation page
 - ✅ Front-end card validation via Stripe PaymentElement (number, expiry, CVC)
 - ✅ Four payment failure scenarios verified: insufficient funds, expired card, incorrect CVC, processing error
@@ -78,6 +78,10 @@ submitted and reviewed previously; their answers are archived in
   change it describes
 - ✅ All pages: Home, PLP, PDP, Cart, Checkout, Confirmation, Account, Search,
   Admin, Contact, About, 404, plus the optional FAQ and Terms
+- ✅ Product images stored and served in two sizes: a full-size asset for the
+  detail page and a smaller thumbnail for cards, cart lines, order history and
+  search suggestions, via SQL where the size is fixed and srcset where it is not
+- ✅ Responsive at 320, 768, 1024 and 1440 px — the four widths the review names
 - ✅ Quick cart preview and quick search with suggestions on every page
 - ✅ Self-signed TLS, AES-256-GCM encryption at rest for PII, token-bucket
   rate limiting, client + server validation (syntactic, semantic, whitelisting)

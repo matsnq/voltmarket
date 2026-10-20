@@ -66,7 +66,7 @@ can later be split into a microservice without rewriting business logic.
   whose findings are written up in the
   [performance analysis report](#performance-analysis-report).
 
-**175 automated tests** across the whole suite: 55 unit, 105 integration,
+**181 automated tests** across the whole suite: 55 unit, 111 integration,
 15 security.
 
 ### How an order flows through the system
@@ -761,7 +761,7 @@ cannot oversell the last unit"*.
 
 ## Testing
 
-175 tests: unit, API integration and security. With the stack already running
+181 tests: unit, API integration and security. With the stack already running
 (`docker compose up -d`), run them **without installing Node**:
 
 Use `npm test` rather than calling `jest` directly: the script adds

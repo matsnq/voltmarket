@@ -148,7 +148,7 @@ async function cartLines(cartId, trx = db) {
       'products.currency',
       'products.stock_quantity',
       'products.is_active',
-      'product_images.file_path as image',
+      db.raw('COALESCE(product_images.thumb_path, product_images.file_path) as image'),
       'product_images.alt_text as image_alt'
     )
     .orderBy('cart_items.created_at');

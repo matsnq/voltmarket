@@ -44,7 +44,18 @@ function serializeProduct(row, images = []) {
         : null,
     attributes: row.attributes || {},
     rating: { average: Number(row.rating_avg), count: row.rating_count },
-    images: images.map((img) => ({ url: img.file_path, alt: img.alt_text, primary: img.is_primary })),
+    images: images.map((img) => ({
+      url: img.file_path,
+      // Card-sized variant. Null for anything uploaded before variants
+      // existed, so every consumer falls back to the full-size file.
+      thumbUrl: img.thumb_path || img.file_path,
+      width: img.width || null,
+      height: img.height || null,
+      thumbWidth: img.thumb_width || null,
+      thumbHeight: img.thumb_height || null,
+      alt: img.alt_text,
+      primary: img.is_primary,
+    })),
     createdAt: row.created_at,
   };
 }
@@ -249,7 +260,7 @@ async function suggest(q) {
         'products.slug',
         'products.price_cents',
         'products.currency',
-        'product_images.file_path as image'
+        db.raw('COALESCE(product_images.thumb_path, product_images.file_path) as image')
       )
       .orderByRaw('similarity(products.name, ?) DESC', [q])
       .limit(8);
@@ -300,6 +311,7 @@ async function getProduct(slugValue) {
         'categories.name as category_name',
         'categories.slug as category_slug',
         'product_images.file_path as primary_image',
+        'product_images.thumb_path as primary_thumb',
         'product_images.alt_text as primary_alt'
       )
       .where('products.category_id', row.category_id)
@@ -314,7 +326,18 @@ async function getProduct(slugValue) {
     related: related.map((r) =>
       serializeProduct(
         r,
-        r.primary_image ? [{ file_path: r.primary_image, alt_text: r.primary_alt, is_primary: true }] : []
+        r.primary_image
+          ? [{
+              file_path: r.primary_image,
+              thumb_path: r.primary_thumb,
+              width: 740,
+              height: 420,
+              thumb_width: 240,
+              thumb_height: 140,
+              alt_text: r.primary_alt,
+              is_primary: true,
+            }]
+          : []
       )
     ),
   };

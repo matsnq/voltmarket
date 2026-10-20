@@ -61,7 +61,15 @@ export default function ProductCard({ product, view = 'grid' }) {
       >
         {image ? (
           <img
-            src={image.url}
+            src={image.thumbUrl || image.url}
+            srcSet={
+              image.thumbUrl && image.thumbWidth
+                ? `${image.thumbUrl} ${image.thumbWidth}w, ${image.url} ${image.width}w`
+                : undefined
+            }
+            sizes={isList ? '160px' : '(min-width: 1280px) 320px, (min-width: 640px) 45vw, 90vw'}
+            width={image.thumbWidth || undefined}
+            height={image.thumbHeight || undefined}
             alt={image.alt || product.name}
             loading="lazy"
             className={`rounded-xl bg-gray-50 object-cover ${

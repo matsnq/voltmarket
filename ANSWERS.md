@@ -324,12 +324,59 @@ in place.
 `/products/suggest` as you type. Suggestions are typo-tolerant via a `pg_trgm`
 GIN index, so `tesle` still finds Tesla.
 
+## 12a. Product images are stored and served in multiple sizes
+
+Each product has two assets, not one file rendered at different widths:
+
+| Variant | Size | Bytes | Used by |
+| --- | --- | --- | --- |
+| Full | 740 × 420 | ~480 B | product detail page |
+| Thumbnail | 240 × 140 | ~220 B | cards, cart lines, order history, search suggestions |
+
+`product_images` stores both paths and both sets of intrinsic dimensions, so
+the API can hand each view what it needs:
+
+```bash
+curl -k https://localhost/api/v1/products/tesla-wall-connector-gen-3 \
+  | python3 -c 'import sys,json;print(json.load(sys.stdin)["product"]["images"][0])'
+# url: .../tesla-wall-connector-gen-3.svg        width 740  height 420
+# thumbUrl: .../tesla-wall-connector-gen-3-thumb.svg  thumbWidth 240  thumbHeight 140
+```
+
+Two different mechanisms, chosen per view:
+
+- **Server-side, unconditional** where the rendered size is small and fixed —
+  cart lines, order history and search suggestions select the thumbnail path
+  in SQL. A suggestion dropdown rendering at 40px never fetches a full-size
+  asset.
+- **Client-side via `srcset`/`sizes`** on listing cards, where the slot width
+  depends on viewport and the display may be high-density. The browser picks:
+  the thumbnail on a 1× display, the full-size file on a 2× one. Both cards
+  and the detail image declare `width`/`height` so the browser reserves space
+  instead of reflowing when the image lands.
+
+The thumbnail is a genuinely separate asset — it omits the product name and
+brand text that would be illegible at card size — so it is less than half the
+bytes rather than the same file with a smaller attribute.
+
+Covered by `tests/integration/images.test.js`, which asserts both paths exist
+on every row, that the thumbnail is the smaller of the two, that suggestions
+and cart lines use it, and that every image has descriptive alt text of more
+than two words.
+
 ## 13. The UI is responsive and works on mobile
 
-Tailwind breakpoints throughout, verified at 375 px (phone), 768 px (tablet)
-and desktop. Checked for horizontal overflow at 640 px — the 200% zoom
-equivalent — across nine routes: none. Wide admin tables scroll inside their
-own container rather than making the page scroll sideways.
+Tailwind breakpoints throughout, verified at the four widths the review names
+— **320, 768, 1024 and 1440 px** — plus 375 px and 640 px, the latter being
+the 200% zoom equivalent. Thirteen routes checked for horizontal overflow at
+320 px: none. Wide admin tables scroll inside their own container rather than
+making the page scroll sideways.
+
+320 px found two real failures, both fixed. The listing toolbar put the sort
+control, the grid/list toggle and the Filters button on one non-wrapping row,
+overflowing by 39 px. And the admin console's section nav, a CSS grid item,
+kept its default `min-width: auto`, so instead of the nav strip scrolling
+inside itself the whole page scrolled sideways by 580 px.
 
 ---
 
@@ -415,6 +462,44 @@ curl -k -X POST https://localhost/api/v1/contact -H 'Content-Type: application/j
 The database is the last line: CHECK constraints on prices and ratings, foreign
 keys, and unique constraints mean an invalid state cannot be committed even if
 a code path forgot to check.
+
+## 17a. Student can explain the CIA triad and how the platform applies it
+
+**Confidentiality** — keeping data from those who should not see it. Passwords
+are bcrypt-hashed so even we cannot read them. PII (order email, addresses,
+phone, TOTP secrets, support messages) is AES-256-GCM encrypted at rest. Card
+numbers never reach the server. TLS protects everything in transit. Role-based
+access limits what each staff member can see — `sales` cannot open the audit
+log, `support` cannot change roles — and an order is readable only by its
+owner or, for a guest, by someone who knows both the reference and the email.
+
+**Integrity** — keeping data correct and unaltered. Checkout runs in one
+transaction with `SELECT … FOR UPDATE` row locks, so two shoppers cannot buy
+the same last unit. CHECK constraints and foreign keys mean an invalid state
+cannot be committed even if a code path forgets to check. Order items snapshot
+name and price, so editing the catalogue cannot rewrite history. Refresh
+tokens are single-use and rotated; reusing one revokes the whole family,
+because reuse means a copy is circulating. The audit log is written in the
+same transaction as the change it records, so it cannot disagree with reality.
+AES-GCM is itself authenticated encryption: tampered ciphertext fails to
+decrypt rather than silently returning wrong plaintext.
+
+**Availability** — keeping the service usable for legitimate users. Token
+bucket rate limiting absorbs abuse, and it **fails open** — if Redis is
+unreachable, requests are allowed rather than the shop going down, because an
+outage is a worse failure than an unthrottled minute. Stock reservations
+expire after 60 minutes so an abandoned checkout cannot hold inventory
+hostage. The queue retries failed order emails and dead-letters what it cannot
+deliver, instead of losing the message or blocking the request. Payment
+reconciliation pulls from Stripe when a webhook is missed, so a dropped
+callback does not strand an order. Load testing established the ceiling
+(~1,355 req/s) and named what to fix first.
+
+The three pull against each other, and the places where this project chose a
+side are worth asking about: the rate limiter fails open (availability over
+confidentiality), bcrypt's work factor is deliberately slow (confidentiality
+over availability), and stock is reserved at placement rather than payment
+(integrity over availability).
 
 ---
 
@@ -512,7 +597,7 @@ Plus `totp.test.js` for the two-factor clock-skew window.
 
 ## 23. API integration tests
 
-**105 integration tests** across seven files, covering endpoint responses, error
+**111 integration tests** across eight files, covering endpoint responses, error
 handling and database persistence. New in Project 3:
 
 - `tests/integration/addresses.test.js` — the address book behind the account
@@ -535,7 +620,7 @@ faceted filtering by category, brand and price, sorting, and pagination.
 (exhaustion, the 429, and refill over time), injection resistance, malformed
 input handling, security headers and encryption at rest.
 
-**All 175 tests, with no Node installed on the host:**
+**All 181 tests, with no Node installed on the host:**
 
 ```bash
 docker run --rm -v "$PWD/backend":/app -w /app \
@@ -545,12 +630,68 @@ docker run --rm -v "$PWD/backend":/app -w /app \
   -e TEST_DATABASE_URL=postgres://shop:shop_secret@postgres:5432/shop_test \
   -e REDIS_URL=redis://redis:6379 \
   node:24-alpine sh -c "npm ci && npm test"
-# Test Suites: 14 passed, 14 total
-# Tests:       175 passed, 175 total
+# Test Suites: 15 passed, 15 total
+# Tests:       181 passed, 181 total
 ```
 
 The suite truncates and reseeds the test database before each run, so a failure
 is reproducible rather than an artefact of what the previous run left behind.
+
+## 25a. Student can explain why semantic HTML matters for accessibility
+
+A `<div>` with a click handler looks identical to a `<button>` on screen and
+is useless to everyone not using a mouse and eyes. The semantic element brings
+behaviour for free that has to be rebuilt — badly — otherwise:
+
+- **A role and a name.** A screen reader announces `<button>Hide</button>` as
+  "Hide, button". A styled `<div>` announces as nothing.
+- **Keyboard operability.** `<button>` is focusable and fires on Enter and
+  Space; a `<div>` needs `tabindex`, key handlers and matching ARIA, and most
+  implementations get one of the three wrong.
+- **Navigation landmarks.** Screen-reader users jump by landmark and by
+  heading. `<main>`, `<nav>`, `<header>` and an ordered H1→H2→H3 give them a
+  table of contents; a page of nested `<div>`s is a wall with no doors. This
+  is why the admin console's missing `<main>` and the product grid's h1→h3
+  jump were worth fixing even though both looked fine.
+- **It degrades well.** Semantic markup still works when CSS fails, in a
+  reader mode, or in a browser nobody tested.
+
+ARIA is the fallback, not the tool: the first rule of ARIA is not to use it if
+a native element will do. This project uses it only where HTML has no
+equivalent — `aria-expanded` on disclosures, `aria-pressed` on toggles,
+`aria-current` on tabs, `role="alert"` on errors.
+
+## 25b. Student can explain the approach to testing, automated and manual
+
+**Automated tests carry the rules; manual testing carries the judgement.**
+
+The 181 automated tests cover what is expensive to re-check by hand and easy
+to break silently: money arithmetic, token lifecycles, authorisation on every
+admin route, encryption at rest, and the concurrency guarantee that two
+shoppers cannot buy the same last unit. Those run in seconds and gate every
+commit.
+
+Manual and exploratory testing caught what the suite could not:
+
+- The peer-review round found six real bugs, including that refunds were
+  unreachable over HTTP — the service function worked and I had "verified" it
+  by calling it from a script, never through a route. The lesson, applied
+  since, is to exercise the HTTP surface rather than the function behind it.
+- Driving the UI found the contact form failing to prefill for a signed-in
+  user, because the silent token refresh resolves after the component mounts.
+- Running the delivery-options rules by hand found that deleting the last
+  active option emptied the list, where hiding it was correctly refused. There
+  is now a test named for exactly that case.
+
+Each of those became a regression test, so the suite grew where reality proved
+it was thin rather than where coverage looked low. That is also why the test
+database truncates and reseeds before every run — a failure should be
+reproducible, not an artefact of what the previous run left behind.
+
+Two tests in this suite once passed while asserting nothing (a skipped staff
+fixture, a checkout step that silently returned early). Both were found by
+looking at runtime, not at the green tick. A test that cannot fail is worse
+than no test, because it buys false confidence.
 
 ---
 
@@ -591,11 +732,17 @@ real orders placed:
   errors.
 - **Normal vs peak:** the required load uses about 3% of that ceiling, roughly
   30× headroom.
-- **Maximum concurrent users before responses exceed 5 s:** not reachable with
-  realistic pacing — at 400 concurrent users p95 was 5.3 **milliseconds**.
-  Dividing the sustainable rate by the ~0.6 req/s an actively browsing user
-  generates estimates **~2,200 concurrent users**. That figure is derived, not
-  measured: the load generator shares this machine.
+- **Maximum concurrent users before responses exceed 5 s: approximately 2,200.**
+  The 95th percentile first crosses five seconds at about 500 journeys/s
+  (p95 4.88 s, measured), which is ~1,400–1,700 requests/s. Converting to
+  users at the ~0.6 req/s an actively browsing person generates gives ~2,200.
+  Stated plainly because the review asks for the number, but the derivation
+  matters: with realistic think time the platform never got slow at any
+  concurrency we could generate — at **400 concurrent users p95 was 5.3
+  milliseconds**, and the API was under half a core. The 5-second figure is
+  reachable only by removing think time and driving requests far faster than
+  2,200 real people would. The load generator also shares this machine, so the
+  true figure on separate hardware is higher.
 - **The load that pushes CPU over 90%: ~1,355 req/s.** Memory never came close
   — 444 MiB peak against 7.65 GiB. The platform is CPU-bound, not
   memory-bound, and no run showed anything resembling a leak.
@@ -671,7 +818,7 @@ run the tests.
 **Verified by cloning this repository to an empty directory and starting it
 there**: 39 products, 107 reviews and 2 support messages provisioned from
 scratch; storefront, API, Mailpit and RabbitMQ all responding; all four demo
-accounts signing in; guest checkout placing a real order; and the 175 tests
+accounts signing in; guest checkout placing a real order; and the 181 tests
 passing via the documented Docker command.
 
 ---

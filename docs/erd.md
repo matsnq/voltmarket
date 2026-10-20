@@ -112,7 +112,12 @@ erDiagram
     product_images {
         int id PK
         uuid product_id FK
-        varchar file_path
+        varchar file_path "full size"
+        varchar thumb_path "card size (P3)"
+        int width
+        int height
+        int thumb_width
+        int thumb_height
         varchar alt_text
         int sort_order
         boolean is_primary
@@ -304,6 +309,13 @@ erDiagram
   was written, so editing a profile does not silently rewrite who said what.
   Ratings are derived from approved reviews only, recomputed inside the same
   transaction that moderates one.
+- **Image variants** (P3): a row carries the path to both a full-size asset
+  and a smaller thumbnail, with the intrinsic dimensions of each. Views whose
+  rendered size is fixed and small — cart lines, order history, search
+  suggestions — select the thumbnail in SQL; listing cards emit both in a
+  `srcset` and let the browser choose by viewport and pixel density. Storing
+  the dimensions lets the markup declare `width`/`height`, so the page does
+  not reflow when an image arrives.
 - **Contact messages** (P3) store `email_enc` and `body_enc` AES-256-GCM
   encrypted: a support message routinely contains more personal data than the
   form asks for ("my order went to the wrong street"). The row is written

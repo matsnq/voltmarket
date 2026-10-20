@@ -138,7 +138,9 @@ export default function ProductList() {
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Wraps rather than overflowing: at 320px the sort control, the view
+            toggle and the Filters button do not fit on one line. */}
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <label htmlFor="sort" className="text-sm text-gray-600">
             Sort
           </label>
@@ -146,7 +148,7 @@ export default function ProductList() {
             id="sort"
             value={sort}
             onChange={(e) => update({ sort: e.target.value })}
-            className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
+            className="min-w-0 max-w-[9.5rem] flex-1 rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100 sm:max-w-none sm:flex-none"
           >
             {SORTS.map(([value, label]) => (
               <option key={value} value={value}>
