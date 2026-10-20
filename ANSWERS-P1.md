@@ -1,7 +1,8 @@
 # Voltmarket — Project 1 (Foundation) Assessment Answers
 
 > **This is an earlier submission, kept for reference.** If you are reviewing
-> the current one (Project 2 — Commerce), you want **[ANSWERS.md](ANSWERS.md)**.
+> the current one (Project 3 — Experience), you want **[ANSWERS.md](ANSWERS.md)**.
+> Project 2's answers are archived in [ANSWERS-P2.md](ANSWERS-P2.md).
 
 Every mandatory review item, in the order the audit lists them. Items phrased
 "the student can explain…" are answered in prose; items phrased "verify…" come

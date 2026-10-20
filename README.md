@@ -6,20 +6,28 @@ gear) — built API-first with a React storefront.
 
 > ### 📍 Reviewing this? Start here
 >
-> **This submission is Project 2 — Commerce**: shopping cart, checkout,
-> payments and order management.
+> **This submission is Project 3 — Experience**: reviews and ratings, the
+> admin console, every customer-facing page, security, SEO, accessibility and
+> load testing. It completes the platform, so the shop in front of you is the
+> finished article rather than a slice of one.
 >
 > - Criteria answered one by one, with commands that prove each: **[ANSWERS.md](ANSWERS.md)**
 > - Running it takes two things only: **Docker** and the **Stripe CLI** →
 >   [Setup & installation](#setup--installation)
+> - What the load tests found, and where the platform gives out →
+>   [Performance analysis report](#performance-analysis-report)
 > - Payments need your own Stripe test keys (they cannot be committed) →
 >   [Enabling payments](#enabling-payments-reviewers-read-this)
 > - **No real card needed** — what to type at checkout:
 >   [Test cards](#-test-cards--what-to-type-at-checkout)
+> - Sign in as `admin`, `support`, `sales` or a customer to see role-based
+>   access differ → [Demo accounts](#demo-accounts)
 >
-> Project 1 (Foundation) was submitted and reviewed earlier; its answers are
-> archived in [ANSWERS-P1.md](ANSWERS-P1.md) and you do not need them here.
-> Project 3 (Experience) has not been submitted yet.
+> Projects 1 and 2 were submitted and reviewed earlier. Their answers are
+> archived in [ANSWERS-P1.md](ANSWERS-P1.md) and
+> [ANSWERS-P2.md](ANSWERS-P2.md); you do not need them here, though the
+> current answers link into them where a Project 3 item builds on earlier
+> foundations.
 
 ## Project overview
 
@@ -49,9 +57,17 @@ can later be split into a microservice without rewriting business logic.
 - ✅ **Project 2 — Commerce**: guest and persistent carts with merge on login,
   single-page checkout, Stripe payments through the provider's own secure
   fields, RabbitMQ-driven order processing, order history, cancellations and
-  refunds. 140 automated tests across the whole suite.
-- 🔜 **Project 3 — Experience**: product listing and detail pages, reviews,
-  admin dashboard, SEO, accessibility pass, load testing.
+  refunds.
+- ✅ **Project 3 — Experience**: star ratings with verified-purchase badges and
+  helpful voting; a ten-screen admin console with role-based access, bulk
+  import, review moderation and an audit log; every page the brief lists,
+  including a support inbox behind a working contact form; an SEO pass and a
+  WCAG 2.1 Level A pass audited across 22 routes; and a k6 load-test suite
+  whose findings are written up in the
+  [performance analysis report](#performance-analysis-report).
+
+**161 automated tests** across the whole suite: 55 unit, 91 integration,
+15 security.
 
 ### How an order flows through the system
 

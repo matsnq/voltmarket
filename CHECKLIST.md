@@ -2,8 +2,9 @@
 
 Living self-review against the course's mandatory items. ✅ done · 🔜 planned.
 
-**Current submission: Project 2 (Commerce).** Project 1 was submitted and
-reviewed previously; Project 3 has not started.
+**Current submission: Project 3 (Experience).** Projects 1 and 2 were
+submitted and reviewed previously; their answers are archived in
+`ANSWERS-P1.md` and `ANSWERS-P2.md`.
 
 ## Project 1 — Foundation
 
@@ -59,16 +60,31 @@ reviewed previously; Project 3 has not started.
 - ✅ Front-end card validation via Stripe PaymentElement (number, expiry, CVC)
 - ✅ Four payment failure scenarios verified: insufficient funds, expired card, incorrect CVC, processing error
 - ✅ Encryption at rest for order PII (AES-256-GCM + HMAC blind index), asserted by test
-- ✅ Project 2 answers documented in `ANSWERS.md`
+- ✅ Project 2 answers documented in `ANSWERS-P2.md`
 
-## Project 3 — Experience (🔜)
+## Project 3 — Experience
 
-- 🔜 Reviews: star ratings, text, average per product, helpful votes
-- 🔜 Admin: products/categories/orders/refunds CRUD, shipping statuses, user & role management, bulk JSON/CSV upload, review moderation, RBAC, audit log
-- 🔜 All admins have 2FA enforced (authorization layer already enforces this)
-- 🔜 All pages: Home, PLP, PDP, Cart, Checkout, Confirmation, Account, Search, Admin, Contact, About, 404 (+ FAQ, Terms)
-- 🔜 Quick cart preview + quick search with suggestions on every page
-- 🔜 Self-signed TLS (done at nginx), encryption at rest for PII (done), token-bucket rate limiting (done)
-- 🔜 SEO: unique title/meta/H1 per page
-- 🔜 WCAG 2.1 A: semantic HTML, keyboard nav, contrast, alt text, relative units
-- 🔜 Load testing (k6): ≥3 scenarios + performance report in docs/
+- ✅ Reviews: 1–5 star ratings, text reviews, average per product recomputed
+  from approved reviews only, helpful voting as a toggle backed by real vote
+  rows, verified-purchase badge decided server-side
+- ✅ Admin: product/category/order CRUD, refunds, shipping status transitions,
+  user and role management, bulk JSON/CSV upload, review moderation, support
+  inbox — ten screens, lazy-loaded so the storefront bundle is unaffected
+- ✅ RBAC across three staff roles (admin / support / sales), authorised
+  server-side on every route; the UI hiding a link is never the control
+- ✅ Admins without 2FA are refused the entire admin surface, not per route
+- ✅ Audit log: every staff mutation written in the same transaction as the
+  change it describes
+- ✅ All pages: Home, PLP, PDP, Cart, Checkout, Confirmation, Account, Search,
+  Admin, Contact, About, 404, plus the optional FAQ and Terms
+- ✅ Quick cart preview and quick search with suggestions on every page
+- ✅ Self-signed TLS, AES-256-GCM encryption at rest for PII, token-bucket
+  rate limiting, client + server validation (syntactic, semantic, whitelisting)
+- ✅ SEO: unique title (<60 chars) and meta description (150–160) per page,
+  one H1, ordered H2–H6, noindex on private pages — verified at runtime
+- ✅ WCAG 2.1 A: semantic HTML, skip link, keyboard navigation, accessible
+  names, 4.5:1 / 3:1 contrast, alt text, rem font sizes, 200% reflow —
+  audited across 22 routes
+- ✅ Load testing (k6): 4 user flows, 6 run profiles, all five objectives met;
+  findings in the README's performance analysis report
+- ✅ Project 3 answers documented in `ANSWERS.md`
