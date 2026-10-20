@@ -739,6 +739,12 @@ cannot oversell the last unit"*.
 161 tests: unit, API integration and security. With the stack already running
 (`docker compose up -d`), run them **without installing Node**:
 
+Use `npm test` rather than calling `jest` directly: the script adds
+`--runInBand` (the integration suites share one database and race if run in
+parallel) and `--forceExit`. Without the latter an ioredis socket keeps the
+process alive and the command appears to hang after reporting that every test
+passed.
+
 ```bash
 docker run --rm -v "$PWD/backend":/app -w /app \
   --network i-love-shopping_default \
@@ -746,7 +752,7 @@ docker run --rm -v "$PWD/backend":/app -w /app \
   -e ADMIN_DATABASE_URL=postgres://shop:shop_secret@postgres:5432/shop \
   -e TEST_DATABASE_URL=postgres://shop:shop_secret@postgres:5432/shop_test \
   -e REDIS_URL=redis://redis:6379 \
-  node:24-alpine sh -c "npm ci && npx jest --runInBand"
+  node:24-alpine sh -c "npm ci && npm test"
 ```
 
 The suite creates and migrates its own `shop_test` database, so it never
