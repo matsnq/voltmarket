@@ -55,7 +55,7 @@ submitted and reviewed previously; their answers are archived in
 - ✅ Cancellation before processing, with stock release
 - ✅ Stripe PaymentIntents — card data never touches the server; verified end to end against the sandbox
 - ✅ Refund workflow (full and partial), with over-refund protection — verified against Stripe
-- ✅ Tests: cart unit, order summary unit, guest + logged-in checkout flows (161 tests across the whole suite)
+- ✅ Tests: cart unit, order summary unit, guest + logged-in checkout flows (175 tests across the whole suite)
 - ✅ Single-page checkout UI, cart page and order confirmation page
 - ✅ Front-end card validation via Stripe PaymentElement (number, expiry, CVC)
 - ✅ Four payment failure scenarios verified: insufficient funds, expired card, incorrect CVC, processing error
@@ -68,8 +68,9 @@ submitted and reviewed previously; their answers are archived in
   from approved reviews only, helpful voting as a toggle backed by real vote
   rows, verified-purchase badge decided server-side
 - ✅ Admin: product/category/order CRUD, refunds, shipping status transitions,
-  user and role management, bulk JSON/CSV upload, review moderation, support
-  inbox — ten screens, lazy-loaded so the storefront bundle is unaffected
+  delivery options, user and role management, bulk JSON/CSV upload, review
+  moderation, support inbox — eleven screens, lazy-loaded so the storefront
+  bundle is unaffected
 - ✅ RBAC across three staff roles (admin / support / sales), authorised
   server-side on every route; the UI hiding a link is never the control
 - ✅ Admins without 2FA are refused the entire admin surface, not per route

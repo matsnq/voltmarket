@@ -555,7 +555,189 @@ async function listAuditLog({ page = 1, perPage = 50 } = {}) {
   };
 }
 
+
+// ---------- Delivery options ----------
+//
+// Checkout cannot happen without at least one active shipping method, so the
+// rules here are stricter than for a catalogue entity: a method an order
+// already used is deactivated rather than deleted (the order must keep saying
+// how it shipped), and the last active one cannot be switched off.
+
+function serializeShippingMethod(row, orderCount = 0) {
+  return {
+    id: row.id,
+    code: row.code,
+    name: row.name,
+    description: row.description,
+    price: money(row.price_cents),
+    priceCents: row.price_cents,
+    etaDays: [row.eta_days_min, row.eta_days_max],
+    etaDaysMin: row.eta_days_min,
+    etaDaysMax: row.eta_days_max,
+    isActive: row.is_active,
+    sortOrder: row.sort_order,
+    orderCount: Number(orderCount),
+  };
+}
+
+async function listShippingMethods() {
+  const rows = await db('shipping_methods').orderBy([
+    { column: 'sort_order' },
+    { column: 'id' },
+  ]);
+  const counts = await db('orders')
+    .whereNotNull('shipping_method_id')
+    .groupBy('shipping_method_id')
+    .select('shipping_method_id')
+    .count('* as n');
+  const byMethod = Object.fromEntries(counts.map((c) => [c.shipping_method_id, Number(c.n)]));
+  return rows.map((r) => serializeShippingMethod(r, byMethod[r.id] || 0));
+}
+
+// `code` is the stable machine name. It is derived from the display name and
+// made unique, so an operator never has to invent one — and it is not
+// editable afterwards, because orders and tests refer to it.
+async function uniqueCode(trx, base, ignoreId) {
+  let code = base;
+  let n = 1;
+  for (;;) {
+    const q = trx('shipping_methods').where({ code });
+    if (ignoreId) q.whereNot('id', ignoreId);
+    // eslint-disable-next-line no-await-in-loop
+    if (!(await q.first())) return code;
+    n += 1;
+    code = `${base}_${n}`;
+  }
+}
+
+async function createShippingMethod(input, actorId) {
+  return db.transaction(async (trx) => {
+    const base = slugify(input.name).replace(/-/g, '_').slice(0, 40) || 'method';
+    const code = await uniqueCode(trx, base);
+    const [row] = await trx('shipping_methods')
+      .insert({
+        code,
+        name: input.name,
+        description: input.description || null,
+        price_cents: input.priceCents,
+        eta_days_min: input.etaDaysMin,
+        eta_days_max: input.etaDaysMax,
+        is_active: input.isActive !== undefined ? input.isActive : true,
+        sort_order: input.sortOrder || 0,
+      })
+      .returning('*');
+
+    await audit(trx, {
+      actorId,
+      action: 'shipping_method.create',
+      entity: 'shipping_methods',
+      entityId: row.id,
+      meta: { code, name: row.name, priceCents: row.price_cents },
+    });
+    return serializeShippingMethod(row);
+  });
+}
+
+async function updateShippingMethod(id, input, actorId) {
+  return db.transaction(async (trx) => {
+    const existing = await trx('shipping_methods').where({ id }).first();
+    if (!existing) throw new HttpError(404, 'Delivery option not found');
+
+    // Turning off the last active option would make checkout impossible for
+    // everyone, with no error message that would explain why.
+    if (input.isActive === false && existing.is_active) {
+      const [{ count }] = await trx('shipping_methods')
+        .where({ is_active: true })
+        .whereNot('id', id)
+        .count('* as count');
+      if (Number(count) === 0) {
+        throw new HttpError(409, 'This is the only active delivery option — checkout needs at least one.');
+      }
+    }
+
+    const patch = {};
+    if (input.name !== undefined) patch.name = input.name;
+    if (input.description !== undefined) patch.description = input.description || null;
+    if (input.priceCents !== undefined) patch.price_cents = input.priceCents;
+    if (input.etaDaysMin !== undefined) patch.eta_days_min = input.etaDaysMin;
+    if (input.etaDaysMax !== undefined) patch.eta_days_max = input.etaDaysMax;
+    if (input.isActive !== undefined) patch.is_active = input.isActive;
+    if (input.sortOrder !== undefined) patch.sort_order = input.sortOrder;
+
+    // A partial update can still produce an invalid window once merged with
+    // what is already stored, which the request-level schema cannot see.
+    const min = patch.eta_days_min ?? existing.eta_days_min;
+    const max = patch.eta_days_max ?? existing.eta_days_max;
+    if (max < min) {
+      throw new HttpError(400, 'The latest delivery day cannot be earlier than the earliest');
+    }
+
+    const [row] = await trx('shipping_methods').where({ id }).update(patch).returning('*');
+    await audit(trx, {
+      actorId,
+      action: 'shipping_method.update',
+      entity: 'shipping_methods',
+      entityId: id,
+      meta: { changed: Object.keys(patch) },
+    });
+    return serializeShippingMethod(row);
+  });
+}
+
+async function deleteShippingMethod(id, actorId) {
+  return db.transaction(async (trx) => {
+    const existing = await trx('shipping_methods').where({ id }).first();
+    if (!existing) throw new HttpError(404, 'Delivery option not found');
+
+    // Removing the last active option leaves checkout with nothing to offer,
+    // whether the row is deleted outright or merely deactivated. The guard
+    // therefore runs before deciding which of the two happens — an earlier
+    // version checked only on the deactivate path, so deleting an unused last
+    // option silently emptied the list.
+    if (existing.is_active) {
+      const [{ count: others }] = await trx('shipping_methods')
+        .where({ is_active: true })
+        .whereNot('id', id)
+        .count('* as count');
+      if (Number(others) === 0) {
+        throw new HttpError(409, 'This is the only active delivery option — checkout needs at least one.');
+      }
+    }
+
+    const [{ count }] = await trx('orders').where({ shipping_method_id: id }).count('* as count');
+    const used = Number(count) > 0;
+
+    if (used) {
+      // Orders must keep saying how they shipped, so the row survives and is
+      // merely withdrawn from checkout.
+      await trx('shipping_methods').where({ id }).update({ is_active: false });
+      await audit(trx, {
+        actorId,
+        action: 'shipping_method.deactivate',
+        entity: 'shipping_methods',
+        entityId: id,
+        meta: { reason: 'referenced by orders', orderCount: Number(count) },
+      });
+      return { deleted: false, deactivated: true, orderCount: Number(count) };
+    }
+
+    await trx('shipping_methods').where({ id }).del();
+    await audit(trx, {
+      actorId,
+      action: 'shipping_method.delete',
+      entity: 'shipping_methods',
+      entityId: id,
+      meta: { code: existing.code, name: existing.name },
+    });
+    return { deleted: true, deactivated: false };
+  });
+}
+
 module.exports = {
+  listShippingMethods,
+  createShippingMethod,
+  updateShippingMethod,
+  deleteShippingMethod,
   stats,
   listProducts, getProduct, createProduct, updateProduct, deleteProduct,
   bulkUploadProducts, parseCsv,

@@ -138,11 +138,35 @@ the UI offers only the next legal step, mirroring a server-side table that
 refuses anything else. Skipping a step is a 400, not a silent jump. Tracking
 numbers are validated to letters, digits, spaces and dashes.
 
-Delivery options themselves live in `shipping_methods` and are seeded with
-standard and express tiers, each with a price and an ETA range. **This is the
-one place where the brief asks for slightly more than exists**: methods are
-managed by editing the seed or the table directly, not through a dedicated
-admin screen. Everything else in the "manage" list has one.
+Delivery options have their own screen at **`/admin/shipping`**, reachable by
+`admin` and `sales`:
+
+```bash
+curl -k -X POST https://localhost/api/v1/admin/shipping-methods \
+  -H "Authorization: Bearer $SALES_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"Saturday delivery","description":"Weekend courier slot.","priceCents":1999,"etaDaysMin":2,"etaDaysMax":4,"sortOrder":5}'
+# 201 — the machine-readable code is derived from the name: "saturday_delivery"
+```
+
+Price, description, delivery window, sort order and whether the option is
+offered at checkout are all editable, and a change reaches the storefront
+immediately. Three rules protect checkout, which cannot function without at
+least one option:
+
+- **A window that ends before it starts is refused** (`etaDaysMax < etaDaysMin`),
+  including when a *partial* update would produce one once merged with the
+  stored values — the request-level schema cannot see that, so the service
+  re-checks.
+- **An option an order has used is hidden, never deleted**, so that order keeps
+  saying how it shipped. The response says which happened:
+  `{"deleted":false,"deactivated":true,"orderCount":1}`.
+- **The last active option cannot be hidden or deleted** — 409, because an
+  empty list would break checkout for everyone with no error that explained
+  why.
+
+Covered by `tests/integration/shipping-admin.test.js` — 14 tests including all
+three rules and the role matrix (support reads, sales writes, only admin
+deletes).
 
 ## 6. User accounts can be viewed and managed, including roles and permissions
 
@@ -487,7 +511,7 @@ Plus `totp.test.js` for the two-factor clock-skew window.
 
 ## 23. API integration tests
 
-**91 integration tests** across six files, covering endpoint responses, error
+**105 integration tests** across seven files, covering endpoint responses, error
 handling and database persistence. New in Project 3:
 
 - `tests/integration/addresses.test.js` — the address book behind the account
@@ -495,6 +519,8 @@ handling and database persistence. New in Project 3:
   than 403**, so the existence of someone else's address is not disclosed.
 - `tests/integration/contact.test.js` — the contact form and support inbox,
   including that the stored row does not contain the plaintext of the message.
+- `tests/integration/shipping-admin.test.js` — delivery options, and the three
+  rules that stop an operator breaking checkout.
 
 ## 24. Critical user flow: product search
 
@@ -508,7 +534,7 @@ faceted filtering by category, brand and price, sorting, and pagination.
 (exhaustion, the 429, and refill over time), injection resistance, malformed
 input handling, security headers and encryption at rest.
 
-**All 161 tests, with no Node installed on the host:**
+**All 175 tests, with no Node installed on the host:**
 
 ```bash
 docker run --rm -v "$PWD/backend":/app -w /app \
@@ -518,8 +544,8 @@ docker run --rm -v "$PWD/backend":/app -w /app \
   -e TEST_DATABASE_URL=postgres://shop:shop_secret@postgres:5432/shop_test \
   -e REDIS_URL=redis://redis:6379 \
   node:24-alpine sh -c "npm ci && npm test"
-# Test Suites: 13 passed, 13 total
-# Tests:       161 passed, 161 total
+# Test Suites: 14 passed, 14 total
+# Tests:       175 passed, 175 total
 ```
 
 The suite truncates and reseeds the test database before each run, so a failure
@@ -644,7 +670,7 @@ run the tests.
 **Verified by cloning this repository to an empty directory and starting it
 there**: 39 products, 107 reviews and 2 support messages provisioned from
 scratch; storefront, API, Mailpit and RabbitMQ all responding; all four demo
-accounts signing in; guest checkout placing a real order; and the 161 tests
+accounts signing in; guest checkout placing a real order; and the 175 tests
 passing via the documented Docker command.
 
 ---
@@ -672,10 +698,7 @@ messages are encrypted.
 
 Stated plainly rather than left for a reviewer to find:
 
-1. **Delivery options have no dedicated admin screen** (item 5). Shipping
-   methods are seeded and editable in the database; every other "manage" item
-   in the brief has a UI.
-2. **No CDN** (item 30). The reasoning and the supporting measurement are
+1. **No CDN** (item 30). The reasoning and the supporting measurement are
    above; the asset pipeline is ready for one.
-3. **The ~2,200 concurrent-user figure is derived, not measured** (item 28),
+2. **The ~2,200 concurrent-user figure is derived, not measured** (item 28),
    because the load generator shares the machine under test.

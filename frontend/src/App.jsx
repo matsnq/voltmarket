@@ -28,6 +28,7 @@ const Dashboard = lazy(() => import('./pages/admin/Dashboard'));
 const AdminProducts = lazy(() => import('./pages/admin/Products'));
 const BulkImport = lazy(() => import('./pages/admin/BulkImport'));
 const Categories = lazy(() => import('./pages/admin/Categories'));
+const Shipping = lazy(() => import('./pages/admin/Shipping'));
 const AdminOrders = lazy(() => import('./pages/admin/Orders').then((m) => ({ default: m.AdminOrders })));
 const AdminOrderDetail = lazy(() => import('./pages/admin/Orders').then((m) => ({ default: m.AdminOrderDetail })));
 const Moderation = lazy(() => import('./pages/admin/Moderation'));
@@ -92,6 +93,7 @@ export default function App() {
                 <Route path="products" element={<AdminProducts />} />
                 <Route path="products/import" element={<BulkImport />} />
                 <Route path="categories" element={<Categories />} />
+                <Route path="shipping" element={<Shipping />} />
                 <Route path="orders" element={<AdminOrders />} />
                 <Route path="orders/:reference" element={<AdminOrderDetail />} />
                 <Route path="reviews" element={<Moderation />} />

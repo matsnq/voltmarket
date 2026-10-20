@@ -11,6 +11,7 @@ const { authorize } = require('../../middleware/authorize');
 const {
   productSchema, productUpdateSchema, productQuerySchema, bulkSchema,
   categorySchema, categoryUpdateSchema,
+  shippingMethodSchema, shippingMethodUpdateSchema,
   userQuerySchema, userUpdateSchema,
   orderQuerySchema, pageSchema,
 } = require('./admin.validation');
@@ -104,6 +105,31 @@ router.patch('/categories/:id', sellers, validate(categoryUpdateSchema), async (
 router.delete('/categories/:id', adminOnly, async (req, res, next) => {
   try {
     res.json(await service.deleteCategory(req.params.id, req.user.id));
+  } catch (err) { next(err); }
+});
+
+// ---------- Delivery options ----------
+router.get('/shipping-methods', staff, async (req, res, next) => {
+  try {
+    res.json({ shippingMethods: await service.listShippingMethods() });
+  } catch (err) { next(err); }
+});
+
+router.post('/shipping-methods', sellers, validate(shippingMethodSchema), async (req, res, next) => {
+  try {
+    res.status(201).json({ shippingMethod: await service.createShippingMethod(req.validated.body, req.user.id) });
+  } catch (err) { next(err); }
+});
+
+router.patch('/shipping-methods/:id', sellers, validate(shippingMethodUpdateSchema), async (req, res, next) => {
+  try {
+    res.json({ shippingMethod: await service.updateShippingMethod(req.params.id, req.validated.body, req.user.id) });
+  } catch (err) { next(err); }
+});
+
+router.delete('/shipping-methods/:id', adminOnly, async (req, res, next) => {
+  try {
+    res.json(await service.deleteShippingMethod(req.params.id, req.user.id));
   } catch (err) { next(err); }
 });
 

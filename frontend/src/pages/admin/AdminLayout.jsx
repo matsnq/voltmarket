@@ -2,7 +2,7 @@ import { NavLink, Outlet, Navigate, Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import {
   LayoutDashboard, Package, FolderTree, ReceiptText, Users, MessageSquareWarning,
-  Upload, ScrollText, ShieldAlert, ArrowLeft, Inbox,
+  Upload, ScrollText, ShieldAlert, ArrowLeft, Inbox, Truck,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -11,6 +11,7 @@ const NAV = [
   { to: '/admin/products', label: 'Products', icon: Package, roles: ['admin', 'sales', 'support'] },
   { to: '/admin/products/import', label: 'Bulk import', icon: Upload, roles: ['admin', 'sales'] },
   { to: '/admin/categories', label: 'Categories', icon: FolderTree, roles: ['admin', 'sales'] },
+  { to: '/admin/shipping', label: 'Delivery options', icon: Truck, roles: ['admin', 'sales'] },
   { to: '/admin/orders', label: 'Orders', icon: ReceiptText, roles: ['admin', 'sales', 'support'] },
   { to: '/admin/reviews', label: 'Reviews', icon: MessageSquareWarning, roles: ['admin', 'support'] },
   { to: '/admin/messages', label: 'Support inbox', icon: Inbox, roles: ['admin', 'sales', 'support'] },

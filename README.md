@@ -66,7 +66,7 @@ can later be split into a microservice without rewriting business logic.
   whose findings are written up in the
   [performance analysis report](#performance-analysis-report).
 
-**161 automated tests** across the whole suite: 55 unit, 91 integration,
+**175 automated tests** across the whole suite: 55 unit, 105 integration,
 15 security.
 
 ### How an order flows through the system
@@ -631,7 +631,7 @@ API. Three roles see three different consoles:
 | Role | Can reach |
 | --- | --- |
 | `support` | dashboard, products (read), orders, refunds, review moderation, support inbox |
-| `sales` | dashboard, products (write), categories, bulk import, orders, fulfilment |
+| `sales` | dashboard, products (write), categories, delivery options, bulk import, orders, fulfilment |
 | `admin` | everything, plus users, roles and the audit log |
 
 Every admin route is authorised server-side, so hiding a link in the UI is a
@@ -662,6 +662,15 @@ curl -k https://localhost/api/v1/admin/products/bulk/template -H "Authorization:
 curl -k -X POST https://localhost/api/v1/admin/products/bulk \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d "{\"format\":\"csv\",\"data\":$(python3 -c 'import json,sys;print(json.dumps(open("template.csv").read()))')}"
+
+# Delivery options: price, window, order and whether checkout offers it.
+# Changes reach the storefront immediately.
+curl -k https://localhost/api/v1/admin/shipping-methods -H "Authorization: Bearer $TOKEN"
+curl -k -X POST https://localhost/api/v1/admin/shipping-methods \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"Saturday delivery","description":"Weekend courier slot.","priceCents":1999,"etaDaysMin":2,"etaDaysMax":4,"sortOrder":5}'
+# Deleting one an order used hides it instead, so that order keeps its
+# delivery details; the last active option cannot be hidden or deleted at all.
 
 # Fulfilment: pending_payment -> paid -> processing -> shipped -> delivered.
 # Only the next step is accepted; skipping one is a 400.
@@ -752,7 +761,7 @@ cannot oversell the last unit"*.
 
 ## Testing
 
-161 tests: unit, API integration and security. With the stack already running
+175 tests: unit, API integration and security. With the stack already running
 (`docker compose up -d`), run them **without installing Node**:
 
 Use `npm test` rather than calling `jest` directly: the script adds

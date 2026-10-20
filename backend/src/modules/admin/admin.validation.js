@@ -55,6 +55,34 @@ const categorySchema = z
 
 const categoryUpdateSchema = categorySchema.partial().strict();
 
+const shippingMethodSchema = z
+  .object({
+    name,
+    description: z.string().trim().max(1000).optional().nullable(),
+    // Prices are integer cents everywhere, and free delivery is legitimate.
+    priceCents: z.coerce.number().int().min(0).max(10000000),
+    etaDaysMin: z.coerce.number().int().min(0).max(365),
+    etaDaysMax: z.coerce.number().int().min(0).max(365),
+    isActive: z.boolean().optional(),
+    sortOrder: z.coerce.number().int().min(0).max(999).optional(),
+  })
+  .strict()
+  // Semantic rule: a window that ends before it starts is well-formed but
+  // meaningless, and the storefront renders it as "5-3 business days".
+  .refine((m) => m.etaDaysMax >= m.etaDaysMin, {
+    message: 'The latest delivery day cannot be earlier than the earliest',
+    path: ['etaDaysMax'],
+  });
+
+const shippingMethodUpdateSchema = shippingMethodSchema
+  .innerType()
+  .partial()
+  .strict()
+  .refine((m) => m.etaDaysMin === undefined || m.etaDaysMax === undefined || m.etaDaysMax >= m.etaDaysMin, {
+    message: 'The latest delivery day cannot be earlier than the earliest',
+    path: ['etaDaysMax'],
+  });
+
 const userQuerySchema = z
   .object({
     q: z.string().trim().max(120).optional(),
@@ -95,6 +123,7 @@ const pageSchema = z
 module.exports = {
   productSchema, productUpdateSchema, productQuerySchema, bulkSchema,
   categorySchema, categoryUpdateSchema,
+  shippingMethodSchema, shippingMethodUpdateSchema,
   userQuerySchema, userUpdateSchema,
   orderQuerySchema, pageSchema,
 };
