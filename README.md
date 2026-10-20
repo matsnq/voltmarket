@@ -92,6 +92,7 @@ erDiagram
     users |o--o{ carts : "owns"
     users |o--o{ orders : "places"
     users ||--o{ reviews : "writes"
+    users |o--o{ contact_messages : "writes in"
     categories |o--o{ categories : "parent of"
     categories ||--o{ products : "contains"
     brands ||--o{ products : "manufactures"
@@ -105,6 +106,7 @@ erDiagram
     orders ||--o{ refunds : "refunded by"
     shipping_methods ||--o{ orders : "ships"
     reviews ||--o{ review_votes : "voted on"
+    users |o--o{ contact_messages : "handles"
 ```
 
 ## Performance analysis report
@@ -569,6 +571,137 @@ curl -k -X POST https://localhost/api/v1/orders/VM-XXXXXX/cancel \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"reason":"Changed my mind"}'
 ```
+
+### Reviews and ratings (P3)
+
+Anyone can read reviews; writing one needs an account. A review from someone
+who actually bought the product is badged `verifiedPurchase`, which the server
+decides by looking at the buyer's paid orders — the client cannot claim it.
+
+```bash
+# Read a product's reviews: sort by helpful | recent | highest | lowest.
+# The response carries the rating distribution for the 5-4-3-2-1 bar chart.
+curl -k 'https://localhost/api/v1/products/tesla-wall-connector-gen-3/reviews?sort=helpful'
+
+# Write one (1-5 stars). Rate limited to 10, refilling one every 10 seconds.
+curl -k -X POST https://localhost/api/v1/products/tesla-wall-connector-gen-3/reviews \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"rating":5,"title":"Installed in an hour","body":"Electrician had it on the wall and talking to the app before lunch."}'
+
+# Edit or withdraw your own
+curl -k -X PATCH https://localhost/api/v1/reviews/$REVIEW_ID \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"rating":4}'
+curl -k -X DELETE https://localhost/api/v1/reviews/$REVIEW_ID -H "Authorization: Bearer $TOKEN"
+
+# Mark someone else's review helpful. Sending it again clears your vote —
+# it is a toggle, and voting on your own review is refused.
+curl -k -X POST https://localhost/api/v1/reviews/$REVIEW_ID/helpful \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"helpful":true}'
+```
+
+One review per person per product, enforced by a unique constraint rather than
+a check in application code. `helpfulCount` is recomputed from the vote rows
+on every change instead of being incremented, so it cannot drift from reality.
+A product's average comes only from approved reviews and is recalculated
+inside the same transaction that approves or rejects one.
+
+### Admin console (P3)
+
+Browse to **https://localhost/admin** as a staff member, or drive it over the
+API. Three roles see three different consoles:
+
+| Role | Can reach |
+| --- | --- |
+| `support` | dashboard, products (read), orders, refunds, review moderation, support inbox |
+| `sales` | dashboard, products (write), categories, bulk import, orders, fulfilment |
+| `admin` | everything, plus users, roles and the audit log |
+
+Every admin route is authorised server-side, so hiding a link in the UI is a
+convenience and never the control. **An admin without 2FA enrolled is refused
+on the whole surface**, not per route.
+
+```bash
+# Sign in as staff (the seeded admin has 2FA, so pass an OTP; support does not)
+TOKEN=$(curl -sk -X POST https://localhost/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"support@voltmarket.local","password":"Support123!"}' \
+  | python3 -c 'import sys,json;print(json.load(sys.stdin)["accessToken"])')
+
+# Dashboard figures — revenue counts collected money only, never pending
+curl -k https://localhost/api/v1/admin/stats -H "Authorization: Bearer $TOKEN"
+
+# Product CRUD. Deleting a product that appears on an order soft-deletes it,
+# so order history keeps its line items.
+# Prices are integer cents and category/brand are ids, not names — the
+# schema is strict, so an unexpected field is a 400 rather than a silent drop.
+curl -k -X POST https://localhost/api/v1/admin/products \
+  -H "Authorization: Bearer $SALES_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"Zaptec Go","description":"Compact 22 kW home charger with built-in earth fault protection.","priceCents":64900,"stockQuantity":12,"categoryId":7,"brandId":1}'
+
+# Bulk import, CSV or JSON. Every row is validated before anything is written:
+# one bad row rejects the whole file and names the line and field.
+curl -k https://localhost/api/v1/admin/products/bulk/template -H "Authorization: Bearer $TOKEN" -o template.csv
+curl -k -X POST https://localhost/api/v1/admin/products/bulk \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d "{\"format\":\"csv\",\"data\":$(python3 -c 'import json,sys;print(json.dumps(open("template.csv").read()))')}"
+
+# Fulfilment: pending_payment -> paid -> processing -> shipped -> delivered.
+# Only the next step is accepted; skipping one is a 400.
+curl -k -X PATCH https://localhost/api/v1/orders/VM-XXXXXX/fulfilment \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"status":"shipped","trackingNumber":"EE123456789"}'
+
+# Refund, full or partial, through Stripe
+curl -k -X POST https://localhost/api/v1/orders/VM-XXXXXX/refund \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"amountCents":4999,"reason":"Damaged in transit"}'
+
+# Moderation queue (the seed leaves two messages waiting: spam and abuse)
+curl -k 'https://localhost/api/v1/admin/reviews?status=pending' -H "Authorization: Bearer $TOKEN"
+curl -k -X PATCH https://localhost/api/v1/admin/reviews/$REVIEW_ID \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"status":"rejected","note":"Advertising link, not a product review"}'
+
+# Users and roles (admin only). Demoting yourself, deactivating yourself or
+# removing the last active admin are all refused with 409.
+curl -k 'https://localhost/api/v1/admin/users?role=customer' -H "Authorization: Bearer $ADMIN_TOKEN"
+curl -k -X PATCH https://localhost/api/v1/admin/users/$USER_ID \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"role":"support"}'
+
+# Audit log (admin only): every staff mutation, newest first
+curl -k https://localhost/api/v1/admin/audit-log -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+Each mutation writes an audit row **inside the same transaction as the change
+itself**, so the log cannot drift out of step with the data it describes.
+Changing someone's role or deactivating them revokes their sessions
+immediately rather than waiting for the access token to expire.
+
+### Contact and support (P3)
+
+```bash
+# Open to guests, so it carries its own tight bucket: 5 messages,
+# refilling one every 5 minutes, independent of the global limiter.
+curl -k -X POST https://localhost/api/v1/contact \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Kati Karu","email":"kati@example.com","topic":"order","subject":"Where is my wallbox?","message":"Tracking has not moved since Tuesday and nobody has been in touch.","orderReference":"VM-XXXXXX"}'
+
+# Staff read the inbox and work it: new -> in_progress -> closed
+curl -k 'https://localhost/api/v1/admin/contact-messages?status=new' -H "Authorization: Bearer $TOKEN"
+curl -k -X PATCH https://localhost/api/v1/admin/contact-messages/$MESSAGE_ID \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"status":"in_progress"}'
+```
+
+The message is written to the database **before** the notification email is
+attempted. A dead mail server therefore delays a reply rather than losing a
+customer's question. Sender address and message body are AES-256-GCM
+encrypted at rest, because a support message routinely contains more personal
+data than the form asked for. Outgoing mail lands in Mailpit at
+http://localhost:8025.
 
 ### Why overselling cannot happen
 

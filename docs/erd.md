@@ -229,6 +229,20 @@ erDiagram
         boolean helpful
     }
 
+    contact_messages {
+        uuid id PK "(P3)"
+        uuid user_id FK "null for guests"
+        string name
+        text email_enc "AES-256-GCM"
+        text body_enc "AES-256-GCM"
+        string subject
+        contact_topic topic "order|product|returns|technical|other"
+        string order_reference "optional, quoted by the sender"
+        contact_status status "new|in_progress|closed"
+        uuid handled_by FK "staff member, nullable"
+        timestamptz created_at
+    }
+
     users ||--o{ oauth_accounts : "signs in via"
     users ||--o{ refresh_tokens : "holds sessions"
     users ||--o{ password_reset_tokens : "requests"
@@ -237,6 +251,7 @@ erDiagram
     users |o--o{ carts : "owns (guests: none)"
     users |o--o{ orders : "places (guest orders allowed)"
     users ||--o{ reviews : "writes"
+    users |o--o{ contact_messages : "writes in (guests: none)"
     users ||--o{ review_votes : "casts"
 
     categories |o--o{ categories : "parent of"
@@ -255,6 +270,7 @@ erDiagram
     payments |o--o{ refunds : "reversed by"
     shipping_methods ||--o{ orders : "ships"
     reviews ||--o{ review_votes : "voted on"
+    users |o--o{ contact_messages : "handles"
 ```
 
 ## Design notes (review talking points)
@@ -280,6 +296,21 @@ erDiagram
   with a GIN index; suggestions use a pg_trgm GIN index on `name`.
 - **Order items snapshot** name and price at purchase time, so later catalog
   edits never rewrite order history (Integrity).
+- **Review integrity** (P3): `reviews` carries a unique constraint on
+  `(product_id, user_id)` so a rating cannot be stacked, and `review_votes` is
+  unique on `(review_id, user_id)` so "helpful" is a toggle rather than a
+  counter to spam. `helpful_count` is recomputed from the vote rows rather
+  than incremented, so it cannot drift. `author_snapshot` keeps the name as it
+  was written, so editing a profile does not silently rewrite who said what.
+  Ratings are derived from approved reviews only, recomputed inside the same
+  transaction that moderates one.
+- **Contact messages** (P3) store `email_enc` and `body_enc` AES-256-GCM
+  encrypted: a support message routinely contains more personal data than the
+  form asks for ("my order went to the wrong street"). The row is written
+  before the notification email is sent, so a dead SMTP server delays a reply
+  instead of losing the question. `user_id` is nullable because guests write
+  in too; `handled_by` is a second, separate FK to `users` for the staff
+  member working on it.
 - **PII at rest** (phone, addresses, TOTP secrets) is AES-256-GCM encrypted at
   the field level; passwords are bcrypt-hashed; tokens are stored as sha256
   hashes only.
