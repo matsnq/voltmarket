@@ -20,11 +20,14 @@ const VALUES = [
   },
 ];
 
+// Placeholder names rather than invented-but-plausible ones: this is a
+// course project, and a fake company staffed by realistic-looking people
+// reads as though those people exist.
 const TEAM = [
-  { name: 'Marten Tsimolonskas', role: 'Founder & engineering', initials: 'MT' },
-  { name: 'Liis Tamm', role: 'Customer support lead', initials: 'LT' },
-  { name: 'Andres Lepik', role: 'Charging specialist', initials: 'AL' },
-  { name: 'Maarja Sepp', role: 'Logistics', initials: 'MS' },
+  { name: 'Person 1', role: 'Founder & engineering', initials: 'P1' },
+  { name: 'Person 2', role: 'Customer support lead', initials: 'P2' },
+  { name: 'Person 3', role: 'Charging specialist', initials: 'P3' },
+  { name: 'Person 4', role: 'Logistics', initials: 'P4' },
 ];
 
 export default function About() {
@@ -102,7 +105,7 @@ export default function About() {
           </div>
           <div className="flex justify-between gap-4 border-b border-gray-100 py-1.5">
             <dt className="text-gray-500">Address</dt>
-            <dd className="font-medium text-gray-900">Pärnu mnt 142, Tallinn</dd>
+            <dd className="font-medium text-gray-900">Example Street 123, Tallinn</dd>
           </div>
           <div className="flex justify-between gap-4 border-b border-gray-100 py-1.5">
             <dt className="text-gray-500">Ships to</dt>

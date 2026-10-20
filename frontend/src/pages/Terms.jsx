@@ -44,8 +44,8 @@ export default function Terms() {
       <section id="terms" aria-labelledby="terms-h" className="mb-8 scroll-mt-20">
         <h2 id="terms-h" className="mb-3 text-xl font-semibold text-gray-900">Terms of service</h2>
         <p className="mb-3 text-sm text-gray-700">
-          By placing an order on Voltmarket you agree to these terms. Voltmarket OÜ, Pärnu mnt
-          142, Tallinn, is the seller. These terms do not limit the statutory rights you have as
+          By placing an order on Voltmarket you agree to these terms. Voltmarket OÜ,
+          Example Street 123, Tallinn, is the seller. These terms do not limit the statutory rights you have as
           a consumer under Estonian and EU law.
         </p>
         <p className="text-sm text-gray-700">

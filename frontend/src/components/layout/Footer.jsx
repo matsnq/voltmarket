@@ -65,7 +65,7 @@ export default function Footer() {
         </div>
 
         <div className="mt-8 flex flex-col gap-2 border-t border-gray-200 pt-6 text-xs text-gray-500 sm:flex-row sm:items-center sm:justify-between">
-          <p>© {new Date().getFullYear()} Voltmarket OÜ · Pärnu mnt 142, Tallinn</p>
+          <p>© {new Date().getFullYear()} Voltmarket OÜ · Example Street 123, Tallinn</p>
           <p>A course project — no real cars were sold in the making of this shop.</p>
         </div>
       </div>
