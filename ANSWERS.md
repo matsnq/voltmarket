@@ -101,6 +101,7 @@ admin console.
 | --- | --- |
 | Products | create, edit, delete (soft when an order references it), search, filter |
 | Categories | create, edit, delete, parent/child nesting, sort order |
+| Delivery options | create, edit, hide from checkout, delete when unused |
 | Orders | list, filter by status, detail with timeline, fulfilment, refunds |
 | Reviews | approve, reject with a note, delete |
 | Users | role changes, activate/deactivate |

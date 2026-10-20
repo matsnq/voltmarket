@@ -69,7 +69,7 @@ submitted and reviewed previously; their answers are archived in
   rows, verified-purchase badge decided server-side
 - ✅ Admin: product/category/order CRUD, refunds, shipping status transitions,
   delivery options, user and role management, bulk JSON/CSV upload, review
-  moderation, support inbox — eleven screens, lazy-loaded so the storefront
+  moderation, support inbox — ten sections, lazy-loaded so the storefront
   bundle is unaffected
 - ✅ RBAC across three staff roles (admin / support / sales), authorised
   server-side on every route; the UI hiding a link is never the control

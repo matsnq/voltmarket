@@ -1,13 +1,41 @@
 # Load tests
 
-Three k6 profiles that drive the real API over HTTPS, modelling how people
-actually use the shop rather than hammering one endpoint.
+Six k6 profiles that drive the real API over HTTPS, modelling how people
+actually use the shop rather than hammering one endpoint. They share the four
+flows in `lib/flows.js`.
+
+**Journey-paced** — virtual users with think time, which is what "concurrent
+users" means:
 
 | File | What it is for |
 | --- | --- |
 | `smoke.js` | One pass of every flow at 2 VUs. Proves the script and the environment work before spending minutes on a measurement. |
 | `baseline.js` | The target run: 50 concurrent users for 3 minutes. Its thresholds are the objectives, so the run itself reports pass or fail. |
-| `stress.js` | Ramps 10 → 400 VUs to find the concurrency at which the 95th percentile crosses five seconds. This run is *meant* to fail. |
+| `step.js` | One concurrency level per run (`VUS=200`), so each run is a single clean data point rather than an average across a ramp. |
+| `stress.js` | Ramps 10 → 400 VUs. Kept for the shape of the curve, but see the note below — it could not answer the question it was written for. |
+
+**Arrival-rate driven** — think time off, the request rate is the independent
+variable. These are what found the ceiling:
+
+| File | What it is for |
+| --- | --- |
+| `capacity.js` | Ramps 100 → 2000 journeys/s to find roughly where the platform gives out. |
+| `rate.js` | One fixed rate per run (`RATE=250`), to pin the number down either side of that. |
+
+### Why both kinds exist
+
+Concurrency alone never stressed this platform. Think time, not the server,
+sets the pace: a browsing user issues about six requests across ten seconds,
+so 400 concurrent users generate only ~250 requests a second however fast the
+server is, and the API sat under half a core. `stress.js` was written to find
+the concurrency at which the 95th percentile crosses five seconds, and the
+honest answer is that it does not, short of a load generator far larger than
+one laptop.
+
+Setting `THINK=0` removes the pauses, and the arrival-rate executors then push
+requests regardless of how long a response takes. That is what located the
+ceiling at ~1,355 req/s. Without it the report would have concluded "no
+bottleneck found", which would have been false.
 
 ## The four flows
 
@@ -46,10 +74,16 @@ run against a limited stack fails loudly rather than reporting nonsense.
 Then:
 
 ```bash
-k6 run load-tests/smoke.js      # always start here
-k6 run load-tests/baseline.js
-k6 run load-tests/stress.js
+k6 run load-tests/smoke.js                       # always start here
+k6 run load-tests/baseline.js                    # the objectives, pass/fail
+
+VUS=200 DURATION=90s k6 run load-tests/step.js   # one concurrency level
+THINK=0 k6 run load-tests/capacity.js            # ramp to find the ceiling
+THINK=0 RATE=250 k6 run load-tests/rate.js       # pin a specific rate
 ```
+
+`THINK=0` matters for the last two: leave it on and you measure the `sleep()`
+calls rather than the server.
 
 Point them elsewhere with `-e BASE_URL=https://staging.example.com`.
 

@@ -593,7 +593,9 @@ a saved address later cannot rewrite where a past order was shipped.
 
 ## 29. Student can explain their approach to testing cart functionality, checkout flows and payment integration
 
-**161 tests: 55 unit, 91 integration, 15 security.** Each layer earns its place.
+**140 tests: 55 unit, 70 integration, 15 security** at the time of this
+submission. Each layer earns its place. (Project 3 took the suite to 175 —
+see [ANSWERS.md](ANSWERS.md); this document records what Project 2 shipped.)
 
 **Cart — unit tests** (`tests/unit/cart.test.js`, 9 tests). Total calculation is
 a pure function, so it is tested without a database: quantity multiplication,
