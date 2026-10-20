@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('./src/lib/loadEnv');
 
 const base = {
   client: 'pg',

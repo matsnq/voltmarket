@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('./lib/loadEnv');
 
 module.exports = {
   env: process.env.NODE_ENV || 'development',
