@@ -343,6 +343,102 @@ async function getProduct(slugValue) {
   };
 }
 
+// ---------- Most popular ----------
+//
+// "Popular" is scored from what the shop actually knows, which is two
+// different signals of very different strength:
+//
+//   units sold   a real purchase, but only a handful of products have one
+//   reviews      every product has some, so it separates the rest
+//
+// Units are weighted heavily so anything genuinely selling outranks a
+// well-reviewed product that nobody has bought; review count then breaks the
+// tie among the rest, with the average rating last so a single glowing review
+// cannot beat twenty good ones.
+//
+// The result is then spread across sub-categories round-robin. Ranking purely
+// by score returns a page of sedans, because cars attract the most reviews —
+// and a landing page that shows one category is not a shop window.
+const POPULAR_SOLD_WEIGHT = 3;
+const POPULAR_REVIEW_WEIGHT = 0.5;
+
+async function listPopular({ limit = 12 } = {}) {
+  const sold = db('order_items')
+    .join('orders', 'orders.id', 'order_items.order_id')
+    // Only money that was actually collected counts as a sale.
+    .whereIn('orders.status', ['paid', 'processing', 'shipped', 'delivered'])
+    .groupBy('order_items.product_id')
+    .select('order_items.product_id')
+    .sum('order_items.quantity as units')
+    .as('sold');
+
+  const rows = await db('products')
+    .join('brands', 'brands.id', 'products.brand_id')
+    .join('categories', 'categories.id', 'products.category_id')
+    .leftJoin(sold, 'sold.product_id', 'products.id')
+    .leftJoin('product_images', function join() {
+      this.on('product_images.product_id', 'products.id').andOnVal(
+        'product_images.is_primary',
+        true
+      );
+    })
+    .where('products.is_active', true)
+    .where('products.stock_quantity', '>', 0)
+    .select(
+      'products.*',
+      'brands.name as brand_name',
+      'brands.slug as brand_slug',
+      'categories.name as category_name',
+      'categories.slug as category_slug',
+      'product_images.file_path as primary_image',
+      'product_images.thumb_path as primary_thumb',
+      'product_images.alt_text as primary_alt',
+      db.raw('COALESCE(sold.units, 0)::int as units_sold'),
+      // The weights are cast explicitly: Postgres infers a bound parameter's
+      // type from its context, so multiplying the integer rating_count by a
+      // bare ? made it infer integer and reject 0.5.
+      db.raw(
+        'COALESCE(sold.units, 0) * ?::numeric + products.rating_count * ?::numeric + products.rating_avg as popularity',
+        [POPULAR_SOLD_WEIGHT, POPULAR_REVIEW_WEIGHT]
+      )
+    )
+    .orderBy('popularity', 'desc');
+
+  // Round-robin across sub-categories, preserving score order within each.
+  const byCategory = new Map();
+  for (const row of rows) {
+    if (!byCategory.has(row.category_slug)) byCategory.set(row.category_slug, []);
+    byCategory.get(row.category_slug).push(row);
+  }
+
+  const picked = [];
+  const queues = [...byCategory.values()];
+  while (picked.length < limit && queues.some((q) => q.length)) {
+    for (const queue of queues) {
+      if (picked.length >= limit) break;
+      if (queue.length) picked.push(queue.shift());
+    }
+  }
+
+  return picked.map((r) =>
+    serializeProduct(
+      r,
+      r.primary_image
+        ? [{
+            file_path: r.primary_image,
+            thumb_path: r.primary_thumb,
+            width: 740,
+            height: 420,
+            thumb_width: 240,
+            thumb_height: 140,
+            alt_text: r.primary_alt,
+            is_primary: true,
+          }]
+        : []
+    )
+  );
+}
+
 async function listBrands() {
   return cached('cache:brands', 60, async () => {
     const rows = await db('brands')
@@ -357,4 +453,5 @@ async function listBrands() {
   });
 }
 
-module.exports = { categoryTree, listProducts, suggest, getProduct, listBrands, serializeProduct };
+module.exports = {
+  listPopular, categoryTree, listProducts, suggest, getProduct, listBrands, serializeProduct };

@@ -293,7 +293,7 @@ in `tests/unit/totp.test.js`.
 
 | Page | Route | Notes |
 | --- | --- | --- |
-| Home | `/` | featured products and categories |
+| Home | `/` | a **Most popular** row of 12 products spread across categories, plus a **Shop by category** grid of all eight collections |
 | Product listing (PLP) | `/products` | faceted search, filters, grid/list toggle, pagination |
 | Product detail (PDP) | `/products/:slug` | images, specs, reviews, related products |
 | Shopping cart | `/cart` | thumbnails, quantity updates, removal, totals |
@@ -323,6 +323,43 @@ in place.
 **Quick search** (`components/layout/QuickSearch.jsx`) queries
 `/products/suggest` as you type. Suggestions are typo-tolerant via a `pg_trgm`
 GIN index, so `tesle` still finds Tesla.
+
+## 11a. The home page showcases featured products and collections
+
+Two sections below the hero:
+
+- **Shop by category** — all eight collections, each with its product count.
+- **Most popular right now** — twelve products from
+  `GET /api/v1/products/popular`.
+
+"Popular" is scored from what the shop actually knows. Units sold carry the
+most weight, because a purchase is a stronger signal than an opinion, but only
+five products have one; review count then separates the rest, with the average
+rating last so a single glowing review cannot outrank twenty good ones.
+
+The result is spread across sub-categories round-robin. Ranking by score alone
+returns a page of cars, because they attract the most reviews, and a landing
+page showing one category is not a shop window. The row therefore mixes cars,
+home chargers, cables, tires and car care — which is also what makes it read
+as a storefront rather than a list.
+
+```bash
+curl -k https://localhost/api/v1/products/popular | python3 -c '
+import sys,json,collections
+d=json.load(sys.stdin)["items"]
+print(len(d),"items across",len(collections.Counter(p["category"]["slug"] for p in d)),"categories")'
+# 12 items across 8 categories
+```
+
+**This criterion was rejected in review, and the reason is worth recording:**
+the sections were implemented, but both fetches ended in `.catch(() => {})`.
+With the API unreachable the page rendered a hero and a footer with nothing
+between them — not an error, just a page that looked finished and empty. It
+now distinguishes the three states, and an outage says so with a retry.
+
+Covered by `tests/integration/popular.test.js`, which pins the two properties
+a landing page depends on: never one category, and never an item nobody can
+buy.
 
 ## 12a. Product images are stored and served in multiple sizes
 
@@ -597,7 +634,7 @@ Plus `totp.test.js` for the two-factor clock-skew window.
 
 ## 23. API integration tests
 
-**111 integration tests** across eight files, covering endpoint responses, error
+**118 integration tests** across nine files, covering endpoint responses, error
 handling and database persistence. New in Project 3:
 
 - `tests/integration/addresses.test.js` — the address book behind the account
@@ -620,7 +657,7 @@ faceted filtering by category, brand and price, sorting, and pagination.
 (exhaustion, the 429, and refill over time), injection resistance, malformed
 input handling, security headers and encryption at rest.
 
-**All 181 tests, with no Node installed on the host:**
+**All 188 tests, with no Node installed on the host:**
 
 ```bash
 docker run --rm -v "$PWD/backend":/app -w /app \
@@ -630,8 +667,8 @@ docker run --rm -v "$PWD/backend":/app -w /app \
   -e TEST_DATABASE_URL=postgres://shop:shop_secret@postgres:5432/shop_test \
   -e REDIS_URL=redis://redis:6379 \
   node:24-alpine sh -c "npm ci && npm test"
-# Test Suites: 15 passed, 15 total
-# Tests:       181 passed, 181 total
+# Test Suites: 16 passed, 16 total
+# Tests:       188 passed, 188 total
 ```
 
 The suite truncates and reseeds the test database before each run, so a failure
@@ -665,7 +702,7 @@ equivalent — `aria-expanded` on disclosures, `aria-pressed` on toggles,
 
 **Automated tests carry the rules; manual testing carries the judgement.**
 
-The 181 automated tests cover what is expensive to re-check by hand and easy
+The 188 automated tests cover what is expensive to re-check by hand and easy
 to break silently: money arithmetic, token lifecycles, authorisation on every
 admin route, encryption at rest, and the concurrency guarantee that two
 shoppers cannot buy the same last unit. Those run in seconds and gate every
@@ -818,7 +855,7 @@ run the tests.
 **Verified by cloning this repository to an empty directory and starting it
 there**: 39 products, 107 reviews and 2 support messages provisioned from
 scratch; storefront, API, Mailpit and RabbitMQ all responding; all four demo
-accounts signing in; guest checkout placing a real order; and the 181 tests
+accounts signing in; guest checkout placing a real order; and the 188 tests
 passing via the documented Docker command.
 
 ---

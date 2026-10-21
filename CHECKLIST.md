@@ -55,7 +55,7 @@ submitted and reviewed previously; their answers are archived in
 - ✅ Cancellation before processing, with stock release
 - ✅ Stripe PaymentIntents — card data never touches the server; verified end to end against the sandbox
 - ✅ Refund workflow (full and partial), with over-refund protection — verified against Stripe
-- ✅ Tests: cart unit, order summary unit, guest + logged-in checkout flows (181 tests across the whole suite)
+- ✅ Tests: cart unit, order summary unit, guest + logged-in checkout flows (188 tests across the whole suite)
 - ✅ Single-page checkout UI, cart page and order confirmation page
 - ✅ Front-end card validation via Stripe PaymentElement (number, expiry, CVC)
 - ✅ Four payment failure scenarios verified: insufficient funds, expired card, incorrect CVC, processing error

@@ -8,10 +8,26 @@ import ProductCard from '../components/ProductCard';
 export default function Home() {
   const [featured, setFeatured] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    api('/products?sort=rating&perPage=8').then((d) => setFeatured(d.items)).catch(() => {});
-    api('/categories').then((d) => setCategories(d.categories)).catch(() => {});
+    let active = true;
+    // Both failures used to be swallowed, so an unreachable API rendered a
+    // hero and a footer with nothing between them — a page that looks
+    // finished and empty rather than broken. Now it says so.
+    Promise.all([
+      api('/products/popular?limit=12'),
+      api('/categories'),
+    ])
+      .then(([p, c]) => {
+        if (!active) return;
+        setFeatured(p.items);
+        setCategories(c.categories);
+      })
+      .catch(() => active && setFailed(true))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
   }, []);
 
   return (
@@ -98,10 +114,15 @@ export default function Home() {
 
       {featured.length > 0 && (
         <section aria-labelledby="featured-heading" className="mx-auto max-w-6xl px-4 pb-16">
-          <div className="mb-6 flex items-end justify-between">
-            <h2 id="featured-heading" className="text-xl font-bold text-gray-900">
-              Top rated
-            </h2>
+          <div className="mb-6 flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <h2 id="featured-heading" className="text-xl font-bold text-gray-900">
+                Most popular right now
+              </h2>
+              <p className="mt-1 text-sm text-gray-600">
+                What people are buying and rating across cars, charging and accessories.
+              </p>
+            </div>
             <Link to="/products" className="text-sm font-medium text-brand-700 hover:underline">
               See all products →
             </Link>
@@ -111,6 +132,33 @@ export default function Home() {
               <ProductCard key={p.id} product={p} />
             ))}
           </ul>
+        </section>
+      )}
+
+      {loading && !failed && (
+        <section className="mx-auto max-w-6xl px-4 pb-16" aria-busy="true">
+          <p className="text-sm text-gray-500">Loading the shop…</p>
+        </section>
+      )}
+
+      {failed && (
+        <section className="mx-auto max-w-6xl px-4 pb-16">
+          <div role="alert" className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-center">
+            <h2 className="text-lg font-semibold text-amber-900">
+              The catalogue is not responding
+            </h2>
+            <p className="mx-auto mt-1 max-w-md text-sm text-amber-800">
+              Products could not be loaded, so this page is showing less than it should. The
+              API may still be starting up.
+            </p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="mt-4 rounded-lg bg-amber-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-800"
+            >
+              Try again
+            </button>
+          </div>
         </section>
       )}
     </main>
