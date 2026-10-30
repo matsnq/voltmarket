@@ -1,33 +1,25 @@
 # ⚡ Voltmarket — B2C E-commerce Platform for Electric Cars
 
-Final course task (**i-love-shopping**). Voltmarket is a Business-to-Consumer
-web shop selling **electric cars and EV accessories** (chargers, cables, tires,
-gear) — built API-first with a React storefront.
+Voltmarket is a Business-to-Consumer web shop selling **electric cars and EV
+accessories** (chargers, cables, tires, gear), built API-first with a React
+storefront.
 
-> ### 📍 Reviewing this? Start here
->
-> **This submission is Project 3 — Experience**: reviews and ratings, the
-> admin console, every customer-facing page, security, SEO, accessibility and
-> load testing. It completes the platform, so the shop in front of you is the
-> finished article rather than a slice of one.
->
-> - Criteria answered one by one, with commands that prove each: **[ANSWERS.md](ANSWERS.md)**
-> - Running it takes two things only: **Docker** and the **Stripe CLI** →
->   [Setup & installation](#setup--installation)
-> - What the load tests found, and where the platform gives out →
->   [Performance analysis report](#performance-analysis-report)
-> - Payments need your own Stripe test keys (they cannot be committed) →
->   [Enabling payments](#enabling-payments-reviewers-read-this)
-> - **No real card needed** — what to type at checkout:
->   [Test cards](#-test-cards--what-to-type-at-checkout)
-> - Sign in as `admin`, `support`, `sales` or a customer to see role-based
->   access differ → [Demo accounts](#demo-accounts)
->
-> Projects 1 and 2 were submitted and reviewed earlier. Their answers are
-> archived in [ANSWERS-P1.md](ANSWERS-P1.md) and
-> [ANSWERS-P2.md](ANSWERS-P2.md); you do not need them here, though the
-> current answers link into them where a Project 3 item builds on earlier
-> foundations.
+My final project at **kood/Jõhvi** (Advanced Full Stack module, ~400 hours).
+A complete web shop, from authentication and the product catalog to Stripe
+payments, an admin console, load testing and accessibility.
+
+**Highlights**
+
+- Node.js + Express API (modular monolith), PostgreSQL, Redis, RabbitMQ, React + Vite + Tailwind
+- JWT auth with token rotation, 2FA, Google OAuth, CAPTCHA and password reset
+- Carts, checkout and Stripe payments, with order processing through a message queue
+- Admin console with role-based access, bulk import, review moderation and an audit log
+- 188 automated tests (unit, integration, security), k6 load tests, WCAG 2.1 Level A pass
+- Runs locally with **Docker** and the **Stripe CLI** → [Setup & installation](#setup--installation)
+
+> The project was built and reviewed in three parts. The course review answers
+> are kept in [ANSWERS.md](ANSWERS.md), [ANSWERS-P1.md](ANSWERS-P1.md) and
+> [ANSWERS-P2.md](ANSWERS-P2.md).
 
 ## Project overview
 
